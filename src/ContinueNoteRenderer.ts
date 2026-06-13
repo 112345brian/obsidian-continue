@@ -219,9 +219,11 @@ export class ContinueNoteChild extends MarkdownRenderChild {
       } else {
         const rawStart = Math.max(0, lines.length - cap);
         const start = safeTailStart(rawStart);
-        let end = lines.length;
-        while (end > start && !lines[end - 1].trim()) end--;
-        chunks.push({ md: lines.slice(start, end).join("\n"), skippedBefore: start });
+        if (start < lines.length) {
+          let end = lines.length;
+          while (end > start && !lines[end - 1].trim()) end--;
+          chunks.push({ md: lines.slice(start, end).join("\n"), skippedBefore: start });
+        }
       }
     } else {
       let end = Math.min(maxLines, lines.length);
