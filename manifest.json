@@ -1,0 +1,9 @@
+{
+  "id": "obsidian-continue",
+  "name": "Continue Note",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Adds a continue-note block that previews your most recently modified note.",
+  "author": "bri",
+  "isDesktopOnly": false
+}
