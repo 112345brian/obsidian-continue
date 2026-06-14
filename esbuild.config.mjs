@@ -23,7 +23,7 @@ const vaultPluginDir = configFolder ? `${configFolder}/plugins/${id}` : null;
 
 function copyToVault() {
   if (!vaultPluginDir) return;
-  for (const f of ["main.js", "main.css", "manifest.json"]) {
+  for (const f of ["main.js", "styles.css", "manifest.json"]) {
     try { copyFileSync(f, `${vaultPluginDir}/${f}`); } catch {}
   }
   const hotreload = `${vaultPluginDir}/.hotreload`;
@@ -68,10 +68,12 @@ const options = {
 };
 
 if (prod) {
+  copyFileSync("src/styles.css", "styles.css");
   const ctx = await esbuild.context({ ...options, plugins: [] });
   await ctx.rebuild();
   process.exit(0);
 } else {
+  copyFileSync("src/styles.css", "styles.css");
   const ctx = await esbuild.context(options);
   await ctx.watch();
 }
