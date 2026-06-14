@@ -187,49 +187,58 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
 
     const tagWrap = setting.controlEl.createDiv({ cls: "cn-tag-input" });
 
+    // Input and suggest are created once — never torn down on re-render.
+    const input = tagWrap.createEl("input", {
+      cls: "cn-tag-input__field",
+      attr: { placeholder: "Add folder…", type: "text" },
+    }) as HTMLInputElement;
+
+    const suggest = new FolderSuggest(this.app, input);
+
     const renderChips = () => {
-      tagWrap.empty();
+      tagWrap.querySelectorAll<HTMLElement>(".cn-tag-chip").forEach((el) => el.remove());
 
       for (const path of this.plugin.settings.exclude) {
-        const chip = tagWrap.createSpan({ cls: "cn-tag-chip" });
-        chip.createSpan({ text: path });
-        const x = chip.createSpan({ cls: "cn-tag-chip__remove", text: "×" });
+        const chip = document.createElement("span");
+        chip.className = "cn-tag-chip";
+        const label = document.createElement("span");
+        label.textContent = path;
+        const x = document.createElement("span");
+        x.className = "cn-tag-chip__remove";
+        x.textContent = "×";
         x.addEventListener("click", async () => {
           this.plugin.settings.exclude = this.plugin.settings.exclude.filter((p) => p !== path);
           await this.plugin.saveSettings();
           renderChips();
         });
+        chip.appendChild(label);
+        chip.appendChild(x);
+        tagWrap.insertBefore(chip, input);
       }
+    };
 
-      const input = tagWrap.createEl("input", {
-        cls: "cn-tag-input__field",
-        attr: { placeholder: "Add folder…", type: "text" },
-      }) as HTMLInputElement;
+    suggest.onSelect(async (folder) => {
+      const path = folder.path + "/";
+      if (!this.plugin.settings.exclude.includes(path)) {
+        this.plugin.settings.exclude = [...this.plugin.settings.exclude, path];
+        await this.plugin.saveSettings();
+        renderChips();
+      }
+      input.value = "";
+    });
 
-      const suggest = new FolderSuggest(this.app, input);
-
-      const commit = async () => {
+    input.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
         const val = input.value.trim();
         if (val && !this.plugin.settings.exclude.includes(val)) {
           this.plugin.settings.exclude = [...this.plugin.settings.exclude, val];
           await this.plugin.saveSettings();
+          renderChips();
         }
-        renderChips();
-      };
-
-      suggest.onSelect(async (folder) => {
-        const path = folder.path + "/";
-        if (!this.plugin.settings.exclude.includes(path)) {
-          this.plugin.settings.exclude = [...this.plugin.settings.exclude, path];
-          await this.plugin.saveSettings();
-        }
-        renderChips();
-      });
-
-      input.addEventListener("keydown", async (e) => {
-        if (e.key === "Enter") { e.preventDefault(); await commit(); }
-      });
-    };
+        input.value = "";
+      }
+    });
 
     renderChips();
   }

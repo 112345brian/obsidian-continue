@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-06-14
+
+- **Excluded folders autosuggest**: replaced the plain-text comma input with a tag-chip UI backed by `FolderSuggest` — type to get vault folder completions, select to add a chip, click × to remove
+- **Fix**: `FolderSuggest` instance is now created once per settings panel open instead of being recreated on every chip add/remove, eliminating the stale-listener leak
+- **Fix**: `ContinueNoteRenderer` now imports `getTrashCollectionApi` from the local `./TrashCollectionApi` mirror instead of the cross-repo path that breaks any fresh clone
+
 ## 0.2.0 — 2026-06-13
 
 - Added `src/TrashCollectionApi.ts`: typed accessor for the Trash Collection plugin's public API — `getTrashCollectionApi(app)` returns the API object or null if the plugin isn't loaded or version-mismatches; used by the `orphan` slot type

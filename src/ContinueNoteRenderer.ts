@@ -1,7 +1,7 @@
 import { App, MarkdownRenderChild, MarkdownRenderer, TFile, setIcon } from "obsidian";
 import type { MarkdownPostProcessorContext } from "obsidian";
 import { BlockConfig, Slot } from "./parseBlockConfig";
-import { getTrashCollectionApi } from "../../obsidian-trash-collection/src/api";
+import { getTrashCollectionApi } from "./TrashCollectionApi";
 import type { ContinueNoteSettings, SortBy } from "./settings";
 
 interface BCGraph {
