@@ -3,7 +3,10 @@
 ## 0.2.1 — 2026-06-14
 
 - **Excluded folders autosuggest**: replaced the plain-text comma input with a tag-chip UI backed by `FolderSuggest` — type to get vault folder completions, select to add a chip, click × to remove
-- **Fix**: `FolderSuggest` instance is now created once per settings panel open instead of being recreated on every chip add/remove, eliminating the stale-listener leak
+- **Fix**: `FolderSuggest` keymap scope is now properly closed in both `display()` (re-renders triggered by sortBy/smartMode toggles) and `hide()` (settings panel close), preventing suggest instances from accumulating on the app keymap
+- **Fix**: `selectSuggestion` is no longer overridden in `FolderSuggest` — the concrete base-class implementation fires `onSelect` callbacks; overriding it without calling `super` silently bypassed the save/chip logic so selections were never committed
+- **Fix**: all excluded-folder paths are normalized to a trailing `/` via `addExclusion()`, preventing overbroad `startsWith` matches (e.g. bare `"Notes"` accidentally excluding `"NotesArchive/"`)
+- **Fix**: hidden/system folders (`.obsidian`, `.trash`, etc.) are filtered out of autosuggest results
 - **Fix**: `ContinueNoteRenderer` now imports `getTrashCollectionApi` from the local `./TrashCollectionApi` mirror instead of the cross-repo path that breaks any fresh clone
 
 ## 0.2.0 — 2026-06-13

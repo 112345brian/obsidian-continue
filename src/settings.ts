@@ -37,6 +37,11 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
     super(app, plugin);
   }
 
+  hide() {
+    this.folderSuggest?.close();
+    this.folderSuggest = null;
+  }
+
   display() {
     // Close the previous FolderSuggest before wiping the DOM so its keymap
     // scope is removed and its input listeners are detached cleanly.
