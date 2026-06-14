@@ -85,6 +85,14 @@ function closeOpenFences(md: string): string {
   return open ? md + "\n" + open : md;
 }
 
+const SLOT_LABEL: Record<string, string> = {
+  opened:      "opened",
+  modified:    "modified",
+  created:     "created",
+  frontmatter: "by date",
+  orphan:      "unlinked",
+};
+
 function relativeTime(mtime: number): string {
   const diff = Date.now() - mtime;
   const minutes = Math.floor(diff / 60_000);
@@ -153,40 +161,53 @@ export class ContinueNoteChild extends MarkdownRenderChild {
 
     const trashApi = getTrashCollectionApi(this.app);
 
-    // Pick targets slot by slot, deduping across slots
+    // Pick targets slot by slot, deduping across slots — keep group membership
     const seen = new Set<string>();
-    const targets: TFile[] = [];
+    const groups: Array<{ label: string; files: TFile[] }> = [];
     for (const slot of slots) {
+      const files: TFile[] = [];
       if (slot.sortBy === "orphan") {
         if (!trashApi) continue;
         const orphans = trashApi.getCandidates()
           .filter((f) => !seen.has(f.path) && !exclude.some((p) => f.path.startsWith(p)));
         for (const f of orphans.slice(0, slot.count)) {
           seen.add(f.path);
-          targets.push(f);
+          files.push(f);
         }
-        continue;
+      } else {
+        const sorted = [...pool].sort((a, b) => scoreFor(slot.sortBy)(b) - scoreFor(slot.sortBy)(a));
+        for (const f of sorted) {
+          if (seen.has(f.path)) continue;
+          seen.add(f.path);
+          files.push(f);
+          if (files.length >= slot.count) break;
+        }
       }
-      const sorted = [...pool].sort((a, b) => scoreFor(slot.sortBy)(b) - scoreFor(slot.sortBy)(a));
-      let picked = 0;
-      for (const f of sorted) {
-        if (seen.has(f.path)) continue;
-        seen.add(f.path);
-        targets.push(f);
-        if (++picked >= slot.count) break;
-      }
+      if (files.length > 0) groups.push({ label: SLOT_LABEL[slot.sortBy], files });
     }
 
-    const capped = targets.slice(0, this.settings.maxTotal);
+    // Apply maxTotal cap across groups in order
+    let remaining = this.settings.maxTotal;
+    const cappedGroups: typeof groups = [];
+    for (const g of groups) {
+      if (remaining <= 0) break;
+      const n = Math.min(g.files.length, remaining);
+      remaining -= n;
+      cappedGroups.push({ label: g.label, files: g.files.slice(0, n) });
+    }
 
-    if (capped.length === 0) {
+    if (cappedGroups.length === 0) {
       const wrapper = this.containerEl.createDiv({ cls: "continue-note-block" });
       wrapper.createDiv({ cls: "continue-note-block__empty", text: "No notes found." });
       return;
     }
 
-    for (const target of capped) {
-      await this.renderCard(target);
+    const showLabels = cappedGroups.length > 1;
+    for (const group of cappedGroups) {
+      if (showLabels) {
+        this.containerEl.createDiv({ cls: "continue-note-block__section", text: group.label });
+      }
+      for (const f of group.files) await this.renderCard(f);
     }
   }
 

@@ -150,6 +150,27 @@ const STYLES = `
   font-style: italic;
   font-size: 0.85em;
 }
+.continue-note-block__section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.68em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  margin: 10px 0 4px;
+}
+.continue-note-block__section:first-child {
+  margin-top: 0;
+}
+.continue-note-block__section::before,
+.continue-note-block__section::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--background-modifier-border);
+}
 `;
 
 const OPENED_LOG_MAX = 500;
