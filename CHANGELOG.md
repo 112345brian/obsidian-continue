@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 — 2026-06-14
+
+- **Excluded folders autosuggest**: replaced the plain-text comma input with a tag-chip UI backed by `FolderSuggest` — type to get vault folder completions, select to add a chip, click × to remove
+- **Fix**: `FolderSuggest` keymap scope is now properly closed in both `display()` (re-renders triggered by sortBy/smartMode toggles) and `hide()` (settings panel close), preventing suggest instances from accumulating on the app keymap
+- **Fix**: `selectSuggestion` is no longer overridden in `FolderSuggest` — the concrete base-class implementation fires `onSelect` callbacks; overriding it without calling `super` silently bypassed the save/chip logic so selections were never committed
+- **Fix**: all excluded-folder paths are normalized to a trailing `/` via `addExclusion()`, preventing overbroad `startsWith` matches (e.g. bare `"Notes"` accidentally excluding `"NotesArchive/"`)
+- **Fix**: hidden/system folders (`.obsidian`, `.trash`, etc.) are filtered out of autosuggest results
+- **Fix**: `ContinueNoteRenderer` now imports `getTrashCollectionApi` from the local `./TrashCollectionApi` mirror instead of the cross-repo path that breaks any fresh clone
+
 ## 0.2.0 — 2026-06-13
 
 - Added `src/TrashCollectionApi.ts`: typed accessor for the Trash Collection plugin's public API — `getTrashCollectionApi(app)` returns the API object or null if the plugin isn't loaded or version-mismatches; used by the `orphan` slot type

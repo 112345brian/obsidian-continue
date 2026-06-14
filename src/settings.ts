@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type ContinueNotePlugin from "./plugin";
+import { FolderSuggest } from "./FolderSuggest";
 
 export type SortBy = "modified" | "created" | "frontmatter" | "opened" | "orphan";
 
@@ -30,11 +31,23 @@ export const DEFAULT_SETTINGS: ContinueNoteSettings = {
 };
 
 export class ContinueNoteSettingsTab extends PluginSettingTab {
+  private folderSuggest: FolderSuggest | null = null;
+
   constructor(app: App, private plugin: ContinueNotePlugin) {
     super(app, plugin);
   }
 
+  hide() {
+    this.folderSuggest?.close();
+    this.folderSuggest = null;
+  }
+
   display() {
+    // Close the previous FolderSuggest before wiping the DOM so its keymap
+    // scope is removed and its input listeners are detached cleanly.
+    this.folderSuggest?.close();
+    this.folderSuggest = null;
+
     const { containerEl } = this;
     containerEl.empty();
 
@@ -101,18 +114,7 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Excluded folders")
-      .setDesc("Comma-separated path prefixes to ignore globally (e.g. TOC/, ARCHIVE/). Block-level exclude adds to this list.")
-      .addText((text) => {
-        text
-          .setPlaceholder("TOC/, ARCHIVE/")
-          .setValue(this.plugin.settings.exclude.join(", "))
-          .onChange(async (val) => {
-            this.plugin.settings.exclude = val.split(",").map((s) => s.trim()).filter(Boolean);
-            await this.plugin.saveSettings();
-          });
-      });
+    this.renderExcludeFolders(containerEl);
 
     new Setting(containerEl)
       .setName("Frontmatter fields")
@@ -188,5 +190,66 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
             }
           })
       );
+  }
+
+  // Normalize a raw path to a trailing-slash prefix and append it to the
+  // exclude list if not already present. Returns true when a chip was added.
+  private async addExclusion(rawPath: string, renderChips: () => void): Promise<boolean> {
+    if (!rawPath) return false;
+    const normalized = rawPath.endsWith("/") ? rawPath : rawPath + "/";
+    if (this.plugin.settings.exclude.includes(normalized)) return false;
+    this.plugin.settings.exclude = [...this.plugin.settings.exclude, normalized];
+    await this.plugin.saveSettings();
+    renderChips();
+    return true;
+  }
+
+  private renderExcludeFolders(containerEl: HTMLElement): void {
+    const setting = new Setting(containerEl)
+      .setName("Excluded folders")
+      .setDesc("Path prefixes to ignore globally. Block-level exclude adds to this list.");
+
+    const tagWrap = setting.controlEl.createDiv({ cls: "cn-tag-input" });
+
+    // Input and suggest are created once per display() call.
+    const input = tagWrap.createEl("input", {
+      cls: "cn-tag-input__field",
+      attr: { placeholder: "Add folder…", type: "text" },
+    }) as HTMLInputElement;
+
+    const suggest = new FolderSuggest(this.app, input);
+    this.folderSuggest = suggest;
+
+    const renderChips = () => {
+      tagWrap.querySelectorAll<HTMLElement>(".cn-tag-chip").forEach((el) => el.remove());
+
+      for (const path of this.plugin.settings.exclude) {
+        // createSpan appends to tagWrap; insertBefore repositions before input.
+        const chip = tagWrap.createSpan({ cls: "cn-tag-chip" });
+        chip.createSpan({ text: path });
+        const x = chip.createSpan({ cls: "cn-tag-chip__remove", text: "×" });
+        x.addEventListener("click", async () => {
+          this.plugin.settings.exclude = this.plugin.settings.exclude.filter((p) => p !== path);
+          await this.plugin.saveSettings();
+          renderChips();
+        });
+        tagWrap.insertBefore(chip, input);
+      }
+    };
+
+    suggest.onSelect(async (folder) => {
+      await this.addExclusion(folder.path, renderChips);
+      input.value = "";
+    });
+
+    input.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        await this.addExclusion(input.value.trim(), renderChips);
+        input.value = "";
+      }
+    });
+
+    renderChips();
   }
 }

@@ -109,3 +109,53 @@
   font-style: italic;
   font-size: 0.85em;
 }
+
+/* Excluded-folders tag input */
+.cn-tag-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 4px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  cursor: text;
+}
+
+.cn-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.8em;
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 1px 6px 1px 8px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cn-tag-chip__remove {
+  cursor: pointer;
+  font-size: 1.1em;
+  line-height: 1;
+  color: var(--text-faint);
+  padding: 0 1px;
+}
+
+.cn-tag-chip__remove:hover {
+  color: var(--text-error);
+}
+
+.cn-tag-input__field {
+  flex: 1;
+  min-width: 120px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.85em;
+  color: var(--text-normal);
+  padding: 2px 2px;
+}
