@@ -1,4 +1,4 @@
-import { App, MarkdownRenderChild, MarkdownRenderer, TFile, setIcon } from "obsidian";
+import { App, MarkdownRenderChild, MarkdownRenderer, Notice, TFile, normalizePath, setIcon } from "obsidian";
 import type { MarkdownPostProcessorContext } from "obsidian";
 import { BlockConfig, Slot } from "./parseBlockConfig";
 import { getTrashCollectionApi } from "./TrashCollectionApi";
@@ -48,8 +48,6 @@ function getBCParentChain(graph: BCGraph, path: string, app: App): string[] {
 
 const FRONTMATTER_RE = /^---[\s\S]*?---\s*\n?/;
 
-// Returns an array where insideBlock[i] = true if line i is inside a fenced block
-// (including the fence lines themselves).
 function buildFenceMap(lines: string[]): boolean[] {
   const map: boolean[] = new Array(lines.length).fill(false);
   let openFence: string | null = null;
@@ -72,7 +70,6 @@ function buildFenceMap(lines: string[]): boolean[] {
   return map;
 }
 
-// If md has an unclosed fence, close it.
 function closeOpenFences(md: string): string {
   const lines = md.split("\n");
   let open: string | null = null;
@@ -108,6 +105,8 @@ function relativeTime(mtime: number): string {
 }
 
 export class ContinueNoteChild extends MarkdownRenderChild {
+  private rendering = false;
+
   constructor(
     private app: App,
     private config: BlockConfig,
@@ -130,24 +129,37 @@ export class ContinueNoteChild extends MarkdownRenderChild {
   }
 
   async render() {
+    if (this.rendering) return;
+    this.rendering = true;
+    try {
+      await this._render();
+    } finally {
+      this.rendering = false;
+    }
+  }
+
+  private async _render() {
     this.containerEl.empty();
 
     const exclude = [...this.settings.exclude, ...this.config.exclude];
     const { sortFrontmatterField } = this.settings;
 
-    const scoreFor = (sortBy: SortBy) => (f: TFile): number => {
-      if (sortBy === "created") return f.stat.ctime;
-      if (sortBy === "frontmatter") {
-        const val = this.app.metadataCache.getFileCache(f)?.frontmatter?.[sortFrontmatterField];
-        if (val) { const t = Date.parse(String(val)); if (!isNaN(t)) return t; }
-        return 0;
-      }
+    // Build a scorer per sortBy — opener uses a Map for O(1) lookup instead of indexOf
+    const scoreFor = (sortBy: SortBy): (f: TFile) => number => {
       if (sortBy === "opened") {
         const log = this.getOpenedLog();
-        const idx = log.indexOf(f.path);
-        return idx === -1 ? 0 : log.length - idx;
+        const rankMap = new Map(log.map((p, i) => [p, log.length - i]));
+        return (f) => rankMap.get(f.path) ?? 0;
       }
-      return f.stat.mtime;
+      if (sortBy === "created") return (f) => f.stat.ctime;
+      if (sortBy === "frontmatter") {
+        return (f) => {
+          const val = this.app.metadataCache.getFileCache(f)?.frontmatter?.[sortFrontmatterField];
+          if (val) { const t = Date.parse(String(val)); if (!isNaN(t)) return t; }
+          return 0;
+        };
+      }
+      return (f) => f.stat.mtime;
     };
 
     const pool = this.app.vault.getMarkdownFiles().filter((f) => {
@@ -155,64 +167,64 @@ export class ContinueNoteChild extends MarkdownRenderChild {
       return !exclude.some((prefix) => f.path.startsWith(prefix));
     });
 
-    // Resolve slots — either from block config or global setting
     const slots: Slot[] = this.config.slots ?? [
       { sortBy: this.settings.sortBy, count: this.settings.count },
     ];
 
     const trashApi = getTrashCollectionApi(this.app);
 
-    // Pick targets slot by slot, deduping across slots — keep group membership
+    // Resolve slots with maxTotal cap applied inline so seen is never
+    // populated beyond what will actually be rendered.
     const seen = new Set<string>();
-    const groups: Array<{ label: string; files: TFile[] }> = [];
+    const groups: Array<{ label: string; files: TFile[]; slotSortBy: SortBy }> = [];
+    let remaining = this.settings.maxTotal;
+
     for (const slot of slots) {
+      if (remaining <= 0) break;
+      const slotMax = Math.min(slot.count, remaining);
       const files: TFile[] = [];
+
       if (slot.sortBy === "orphan") {
         if (!trashApi) continue;
         const orphans = trashApi.getCandidates()
           .filter((f) => !seen.has(f.path) && !exclude.some((p) => f.path.startsWith(p)));
-        for (const f of orphans.slice(0, slot.count)) {
+        for (const f of orphans.slice(0, slotMax)) {
           seen.add(f.path);
           files.push(f);
         }
       } else {
-        const sorted = [...pool].sort((a, b) => scoreFor(slot.sortBy)(b) - scoreFor(slot.sortBy)(a));
+        const scorer = scoreFor(slot.sortBy);
+        const sorted = [...pool].sort((a, b) => scorer(b) - scorer(a));
         for (const f of sorted) {
           if (seen.has(f.path)) continue;
           seen.add(f.path);
           files.push(f);
-          if (files.length >= slot.count) break;
+          if (files.length >= slotMax) break;
         }
       }
-      if (files.length > 0) groups.push({ label: SLOT_LABEL[slot.sortBy], files });
+
+      if (files.length > 0) {
+        remaining -= files.length;
+        groups.push({ label: SLOT_LABEL[slot.sortBy], files, slotSortBy: slot.sortBy });
+      }
     }
 
-    // Apply maxTotal cap across groups in order
-    let remaining = this.settings.maxTotal;
-    const cappedGroups: typeof groups = [];
-    for (const g of groups) {
-      if (remaining <= 0) break;
-      const n = Math.min(g.files.length, remaining);
-      remaining -= n;
-      cappedGroups.push({ label: g.label, files: g.files.slice(0, n) });
-    }
-
-    if (cappedGroups.length === 0) {
+    if (groups.length === 0) {
       const wrapper = this.containerEl.createDiv({ cls: "continue-note-block" });
       wrapper.createDiv({ cls: "continue-note-block__empty", text: "No notes found." });
       return;
     }
 
-    const showLabels = cappedGroups.length > 1;
-    for (const group of cappedGroups) {
+    const showLabels = groups.length > 1;
+    for (const group of groups) {
       if (showLabels) {
         this.containerEl.createDiv({ cls: "continue-note-block__section", text: group.label });
       }
-      for (const f of group.files) await this.renderCard(f);
+      for (const f of group.files) await this.renderCard(f, group.slotSortBy);
     }
   }
 
-  async renderCard(target: TFile) {
+  async renderCard(target: TFile, slotSortBy: SortBy) {
     const wrapper = this.containerEl.createDiv({ cls: "continue-note-block" });
 
     const header = wrapper.createDiv({ cls: "continue-note-block__header" });
@@ -226,17 +238,23 @@ export class ContinueNoteChild extends MarkdownRenderChild {
       const fm = this.app.metadataCache.getFileCache(target)?.frontmatter ?? {};
       const field = this.settings.categorizeField;
       new CategorizeModal(this.app, target, field, fm[field] ?? null, async (newVal, newFolder) => {
-        if (newVal !== undefined) {
-          await this.app.fileManager.processFrontMatter(target, (data) => {
-            if (newVal === null) delete data[field];
-            else data[field] = newVal;
-          });
+        try {
+          // newVal is undefined when the user didn't edit the field — skip frontmatter write
+          if (newVal !== undefined) {
+            await this.app.fileManager.processFrontMatter(target, (data) => {
+              if (newVal === null) delete data[field];
+              else data[field] = newVal;
+            });
+          }
+          if (newFolder) {
+            const newPath = normalizePath(newFolder + "/" + target.name);
+            await this.app.fileManager.renameFile(target, newPath);
+          }
+        } catch (e) {
+          new Notice(`Categorize failed: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          await this.render();
         }
-        if (newFolder) {
-          const newPath = newFolder.replace(/\/$/, "") + "/" + target.name;
-          await this.app.fileManager.renameFile(target, newPath);
-        }
-        await this.render();
       }).open();
     });
 
@@ -255,7 +273,8 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     });
 
     const meta = header.createDiv({ cls: "continue-note-block__meta" });
-    const timeVal = this.settings.sortBy === "created" ? target.stat.ctime : target.stat.mtime;
+    // Use the slot's own sortBy for the timestamp so multi-slot blocks show the right date
+    const timeVal = slotSortBy === "created" ? target.stat.ctime : target.stat.mtime;
     meta.createSpan({ text: relativeTime(timeVal) });
 
     const graph = getBCGraph(this.app);
@@ -289,7 +308,6 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     const lines = body.split("\n");
     const fenceMap = buildFenceMap(lines);
 
-    // Find the last safe start index at or after `from` that isn't inside a fence.
     const safeTailStart = (from: number) => {
       let i = from;
       while (i < lines.length && fenceMap[i]) i++;
@@ -298,8 +316,6 @@ export class ContinueNoteChild extends MarkdownRenderChild {
 
     const { smartMode, smartAbsoluteMax, shortNoteThreshold, maxLines } = this.settings;
 
-    // Each chunk: { markdown: string, skippedBefore: number }
-    // skippedBefore > 0 means "N lines were skipped before this chunk"
     const chunks: Array<{ md: string; skippedBefore: number }> = [];
 
     if (lines.length <= shortNoteThreshold) {
@@ -357,6 +373,5 @@ export class ContinueNoteChild extends MarkdownRenderChild {
         }
       }
     }
-
   }
 }
