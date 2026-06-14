@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type ContinueNotePlugin from "./plugin";
+import { FolderSuggest } from "./FolderSuggest";
 
 export type SortBy = "modified" | "created" | "frontmatter" | "opened" | "orphan";
 
@@ -101,18 +102,7 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Excluded folders")
-      .setDesc("Comma-separated path prefixes to ignore globally (e.g. TOC/, ARCHIVE/). Block-level exclude adds to this list.")
-      .addText((text) => {
-        text
-          .setPlaceholder("TOC/, ARCHIVE/")
-          .setValue(this.plugin.settings.exclude.join(", "))
-          .onChange(async (val) => {
-            this.plugin.settings.exclude = val.split(",").map((s) => s.trim()).filter(Boolean);
-            await this.plugin.saveSettings();
-          });
-      });
+    this.renderExcludeFolders(containerEl);
 
     new Setting(containerEl)
       .setName("Frontmatter fields")
@@ -188,5 +178,59 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
             }
           })
       );
+  }
+
+  private renderExcludeFolders(containerEl: HTMLElement): void {
+    const setting = new Setting(containerEl)
+      .setName("Excluded folders")
+      .setDesc("Path prefixes to ignore globally. Block-level exclude adds to this list.");
+
+    const tagWrap = setting.controlEl.createDiv({ cls: "cn-tag-input" });
+
+    const renderChips = () => {
+      tagWrap.empty();
+
+      for (const path of this.plugin.settings.exclude) {
+        const chip = tagWrap.createSpan({ cls: "cn-tag-chip" });
+        chip.createSpan({ text: path });
+        const x = chip.createSpan({ cls: "cn-tag-chip__remove", text: "×" });
+        x.addEventListener("click", async () => {
+          this.plugin.settings.exclude = this.plugin.settings.exclude.filter((p) => p !== path);
+          await this.plugin.saveSettings();
+          renderChips();
+        });
+      }
+
+      const input = tagWrap.createEl("input", {
+        cls: "cn-tag-input__field",
+        attr: { placeholder: "Add folder…", type: "text" },
+      }) as HTMLInputElement;
+
+      const suggest = new FolderSuggest(this.app, input);
+
+      const commit = async () => {
+        const val = input.value.trim();
+        if (val && !this.plugin.settings.exclude.includes(val)) {
+          this.plugin.settings.exclude = [...this.plugin.settings.exclude, val];
+          await this.plugin.saveSettings();
+        }
+        renderChips();
+      };
+
+      suggest.onSelect(async (folder) => {
+        const path = folder.path + "/";
+        if (!this.plugin.settings.exclude.includes(path)) {
+          this.plugin.settings.exclude = [...this.plugin.settings.exclude, path];
+          await this.plugin.saveSettings();
+        }
+        renderChips();
+      });
+
+      input.addEventListener("keydown", async (e) => {
+        if (e.key === "Enter") { e.preventDefault(); await commit(); }
+      });
+    };
+
+    renderChips();
   }
 }
