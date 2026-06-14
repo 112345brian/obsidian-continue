@@ -31,11 +31,18 @@ export const DEFAULT_SETTINGS: ContinueNoteSettings = {
 };
 
 export class ContinueNoteSettingsTab extends PluginSettingTab {
+  private folderSuggest: FolderSuggest | null = null;
+
   constructor(app: App, private plugin: ContinueNotePlugin) {
     super(app, plugin);
   }
 
   display() {
+    // Close the previous FolderSuggest before wiping the DOM so its keymap
+    // scope is removed and its input listeners are detached cleanly.
+    this.folderSuggest?.close();
+    this.folderSuggest = null;
+
     const { containerEl } = this;
     containerEl.empty();
 
@@ -180,6 +187,18 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
       );
   }
 
+  // Normalize a raw path to a trailing-slash prefix and append it to the
+  // exclude list if not already present. Returns true when a chip was added.
+  private async addExclusion(rawPath: string, renderChips: () => void): Promise<boolean> {
+    if (!rawPath) return false;
+    const normalized = rawPath.endsWith("/") ? rawPath : rawPath + "/";
+    if (this.plugin.settings.exclude.includes(normalized)) return false;
+    this.plugin.settings.exclude = [...this.plugin.settings.exclude, normalized];
+    await this.plugin.saveSettings();
+    renderChips();
+    return true;
+  }
+
   private renderExcludeFolders(containerEl: HTMLElement): void {
     const setting = new Setting(containerEl)
       .setName("Excluded folders")
@@ -187,55 +206,41 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
 
     const tagWrap = setting.controlEl.createDiv({ cls: "cn-tag-input" });
 
-    // Input and suggest are created once — never torn down on re-render.
+    // Input and suggest are created once per display() call.
     const input = tagWrap.createEl("input", {
       cls: "cn-tag-input__field",
       attr: { placeholder: "Add folder…", type: "text" },
     }) as HTMLInputElement;
 
     const suggest = new FolderSuggest(this.app, input);
+    this.folderSuggest = suggest;
 
     const renderChips = () => {
       tagWrap.querySelectorAll<HTMLElement>(".cn-tag-chip").forEach((el) => el.remove());
 
       for (const path of this.plugin.settings.exclude) {
-        const chip = document.createElement("span");
-        chip.className = "cn-tag-chip";
-        const label = document.createElement("span");
-        label.textContent = path;
-        const x = document.createElement("span");
-        x.className = "cn-tag-chip__remove";
-        x.textContent = "×";
+        // createSpan appends to tagWrap; insertBefore repositions before input.
+        const chip = tagWrap.createSpan({ cls: "cn-tag-chip" });
+        chip.createSpan({ text: path });
+        const x = chip.createSpan({ cls: "cn-tag-chip__remove", text: "×" });
         x.addEventListener("click", async () => {
           this.plugin.settings.exclude = this.plugin.settings.exclude.filter((p) => p !== path);
           await this.plugin.saveSettings();
           renderChips();
         });
-        chip.appendChild(label);
-        chip.appendChild(x);
         tagWrap.insertBefore(chip, input);
       }
     };
 
     suggest.onSelect(async (folder) => {
-      const path = folder.path + "/";
-      if (!this.plugin.settings.exclude.includes(path)) {
-        this.plugin.settings.exclude = [...this.plugin.settings.exclude, path];
-        await this.plugin.saveSettings();
-        renderChips();
-      }
+      await this.addExclusion(folder.path, renderChips);
       input.value = "";
     });
 
     input.addEventListener("keydown", async (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        const val = input.value.trim();
-        if (val && !this.plugin.settings.exclude.includes(val)) {
-          this.plugin.settings.exclude = [...this.plugin.settings.exclude, val];
-          await this.plugin.saveSettings();
-          renderChips();
-        }
+        await this.addExclusion(input.value.trim(), renderChips);
         input.value = "";
       }
     });

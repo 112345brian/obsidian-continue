@@ -11,7 +11,12 @@ export class FolderSuggest extends AbstractInputSuggest<TFolder> {
     const lower = query.toLowerCase();
     return this.app.vault
       .getAllFolders(true)
-      .filter((f) => f.path !== "/" && f.path.toLowerCase().includes(lower))
+      .filter(
+        (f) =>
+          f.path !== "/" &&
+          !f.path.startsWith(".") &&
+          f.path.toLowerCase().includes(lower),
+      )
       .slice(0, 20);
   }
 
@@ -19,8 +24,6 @@ export class FolderSuggest extends AbstractInputSuggest<TFolder> {
     el.setText(folder.path);
   }
 
-  selectSuggestion(folder: TFolder): void {
-    this.setValue(folder.path + "/");
-    this.close();
-  }
+  // selectSuggestion is intentionally NOT overridden — the concrete base-class
+  // implementation fires the onSelect callbacks registered in settings.ts.
 }
