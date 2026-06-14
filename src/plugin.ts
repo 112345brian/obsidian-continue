@@ -6,16 +6,29 @@ import { ContinueNoteSettings, ContinueNoteSettingsTab, DEFAULT_SETTINGS } from 
 const STYLES = `
 .continue-note-block {
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
+  border-top: none;
+  border-radius: 0;
   padding: 14px 16px 12px;
   background: var(--background-secondary);
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin-bottom: 8px;
-}
-.continue-note-block:last-child {
   margin-bottom: 0;
+}
+/* First card in a group gets a top border and top rounding */
+.continue-note-block:first-child,
+.continue-note-block__section + .continue-note-block {
+  border-top: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l) var(--radius-l) 0 0;
+}
+/* Last card in a group (not immediately followed by another card) gets bottom rounding */
+.continue-note-block:not(:has(+ .continue-note-block)) {
+  border-radius: 0 0 var(--radius-l) var(--radius-l);
+}
+/* Single card: fully rounded */
+.continue-note-block:first-child:not(:has(+ .continue-note-block)),
+.continue-note-block__section + .continue-note-block:not(:has(+ .continue-note-block)) {
+  border-radius: var(--radius-l);
 }
 .continue-note-block__header {
   display: flex;
