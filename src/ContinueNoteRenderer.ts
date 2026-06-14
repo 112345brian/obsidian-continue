@@ -187,7 +187,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
       if (slot.sortBy === "orphan") {
         if (!trashApi) continue;
         const orphans = trashApi.getCandidates()
-          .filter((f) => !seen.has(f.path) && !exclude.some((p) => f.path.startsWith(p)));
+          .filter((f) => f.path !== this.ctx.sourcePath && !seen.has(f.path) && !exclude.some((p) => f.path.startsWith(p)));
         for (const f of orphans.slice(0, slotMax)) {
           seen.add(f.path);
           files.push(f);

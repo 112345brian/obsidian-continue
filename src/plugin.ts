@@ -12,7 +12,10 @@ const STYLES = `
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin-bottom: 24px;
+  margin-bottom: 8px;
+}
+.continue-note-block:last-child {
+  margin-bottom: 0;
 }
 .continue-note-block__header {
   display: flex;
