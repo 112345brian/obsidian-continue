@@ -103,7 +103,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     private app: App,
     private config: BlockConfig,
     private settings: ContinueNoteSettings,
-    private openedLog: string[],
+    private getOpenedLog: () => string[],
     el: HTMLElement,
     private ctx: MarkdownPostProcessorContext
   ) {
@@ -112,6 +112,12 @@ export class ContinueNoteChild extends MarkdownRenderChild {
 
   async onload() {
     await this.render();
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", async () => {
+        const active = this.app.workspace.getActiveFile();
+        if (active?.path === this.ctx.sourcePath) await this.render();
+      })
+    );
   }
 
   async render() {
@@ -128,8 +134,9 @@ export class ContinueNoteChild extends MarkdownRenderChild {
         return 0;
       }
       if (sortBy === "opened") {
-        const idx = this.openedLog.indexOf(f.path);
-        return idx === -1 ? 0 : this.openedLog.length - idx;
+        const log = this.getOpenedLog();
+        const idx = log.indexOf(f.path);
+        return idx === -1 ? 0 : log.length - idx;
       }
       return f.stat.mtime;
     };

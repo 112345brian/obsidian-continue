@@ -183,7 +183,7 @@ export default class ContinueNotePlugin extends Plugin {
       "continue-note",
       (source, el, ctx) => {
         const config = parseBlockConfig(source);
-        ctx.addChild(new ContinueNoteChild(this.app, config, this.settings, this.openedLog, el, ctx));
+        ctx.addChild(new ContinueNoteChild(this.app, config, this.settings, () => this.openedLog, el, ctx));
       }
     );
   }
