@@ -15,6 +15,7 @@ export interface ContinueNoteSettings {
   smartAbsoluteMax: number;
   shortNoteThreshold: number;
   maxLines: number;
+  categorizeField: string;
 }
 
 export const DEFAULT_SETTINGS: ContinueNoteSettings = {
@@ -28,6 +29,7 @@ export const DEFAULT_SETTINGS: ContinueNoteSettings = {
   smartAbsoluteMax: 10,
   shortNoteThreshold: 9,
   maxLines: 6,
+  categorizeField: "up",
 };
 
 export class ContinueNoteSettingsTab extends PluginSettingTab {
@@ -115,6 +117,19 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
       );
 
     this.renderExcludeFolders(containerEl);
+
+    new Setting(containerEl)
+      .setName("Categorize field")
+      .setDesc("Frontmatter property edited by the categorize (chevron) button on each card.")
+      .addText((t) =>
+        t
+          .setPlaceholder("up")
+          .setValue(this.plugin.settings.categorizeField)
+          .onChange(async (val) => {
+            this.plugin.settings.categorizeField = val.trim() || "up";
+            await this.plugin.saveSettings();
+          })
+      );
 
     new Setting(containerEl)
       .setName("Frontmatter fields")

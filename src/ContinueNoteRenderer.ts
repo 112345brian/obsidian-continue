@@ -2,6 +2,7 @@ import { App, MarkdownRenderChild, MarkdownRenderer, TFile, setIcon } from "obsi
 import type { MarkdownPostProcessorContext } from "obsidian";
 import { BlockConfig, Slot } from "./parseBlockConfig";
 import { getTrashCollectionApi } from "./TrashCollectionApi";
+import { CategorizeModal } from "./CategorizeModal";
 import type { ContinueNoteSettings, SortBy } from "./settings";
 
 interface BCGraph {
@@ -216,7 +217,30 @@ export class ContinueNoteChild extends MarkdownRenderChild {
 
     const header = wrapper.createDiv({ cls: "continue-note-block__header" });
 
-    const trashBtn = header.createEl("span", { cls: "continue-note-block__trash" });
+    const actions = header.createEl("span", { cls: "continue-note-block__actions" });
+
+    const catBtn = actions.createEl("span", { cls: "continue-note-block__action-btn" });
+    setIcon(catBtn, "chevron-right");
+    catBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const fm = this.app.metadataCache.getFileCache(target)?.frontmatter ?? {};
+      const field = this.settings.categorizeField;
+      new CategorizeModal(this.app, target, field, fm[field] ?? null, async (newVal, newFolder) => {
+        if (newVal !== undefined) {
+          await this.app.fileManager.processFrontMatter(target, (data) => {
+            if (newVal === null) delete data[field];
+            else data[field] = newVal;
+          });
+        }
+        if (newFolder) {
+          const newPath = newFolder.replace(/\/$/, "") + "/" + target.name;
+          await this.app.fileManager.renameFile(target, newPath);
+        }
+        await this.render();
+      }).open();
+    });
+
+    const trashBtn = actions.createEl("span", { cls: "continue-note-block__action-btn continue-note-block__action-btn--trash" });
     setIcon(trashBtn, "trash");
     trashBtn.addEventListener("click", async (e) => {
       e.stopPropagation();

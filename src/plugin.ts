@@ -21,21 +21,30 @@ const STYLES = `
   margin-bottom: 10px;
   position: relative;
 }
-.continue-note-block__trash {
+.continue-note-block__actions {
   position: absolute;
   top: 0;
   right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.continue-note-block:hover .continue-note-block__actions {
+  opacity: 1;
+}
+.continue-note-block__action-btn {
   color: var(--text-faint);
   cursor: pointer;
   display: flex;
   align-items: center;
-  opacity: 0;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  transition: color 0.15s ease;
 }
-.continue-note-block:hover .continue-note-block__trash {
-  opacity: 1;
+.continue-note-block__action-btn:hover {
+  color: var(--text-normal);
 }
-.continue-note-block__trash:hover {
+.continue-note-block__action-btn--trash:hover {
   color: var(--text-error);
 }
 .continue-note-block__label-row {
