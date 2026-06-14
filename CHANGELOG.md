@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.1 — 2026-06-14
+## 0.2.2 — 2026-06-14
 
 - **Excluded folders autosuggest**: replaced the plain-text comma input with a tag-chip UI backed by `FolderSuggest` — type to get vault folder completions, select to add a chip, click × to remove
 - **Fix**: `FolderSuggest` keymap scope is now properly closed in both `display()` (re-renders triggered by sortBy/smartMode toggles) and `hide()` (settings panel close), preventing suggest instances from accumulating on the app keymap
