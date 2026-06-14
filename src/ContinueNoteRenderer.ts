@@ -220,7 +220,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     const actions = header.createEl("span", { cls: "continue-note-block__actions" });
 
     const catBtn = actions.createEl("span", { cls: "continue-note-block__action-btn" });
-    setIcon(catBtn, "chevron-right");
+    setIcon(catBtn, "link-2");
     catBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       const fm = this.app.metadataCache.getFileCache(target)?.frontmatter ?? {};
