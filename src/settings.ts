@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, normalizePath } from "obsidian";
 import type ContinueNotePlugin from "./plugin";
 import { FolderSuggest } from "./FolderSuggest";
 
@@ -207,13 +207,15 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
       );
   }
 
-  private async addExclusion(rawPath: string): Promise<void> {
+  private async addExclusion(rawPath: string, renderList: () => void): Promise<void> {
     if (!rawPath) return;
-    const normalized = rawPath.endsWith("/") ? rawPath : rawPath + "/";
+    // normalizePath handles backslashes, double slashes, etc. from manual keyboard entry
+    const base = normalizePath(rawPath.endsWith("/") ? rawPath.slice(0, -1) : rawPath);
+    const normalized = base + "/";
     if (this.plugin.settings.exclude.includes(normalized)) return;
     this.plugin.settings.exclude = [...this.plugin.settings.exclude, normalized];
     await this.plugin.saveSettings();
-    this.display();
+    renderList();
   }
 
   private renderExcludeFolders(containerEl: HTMLElement): void {
@@ -222,28 +224,36 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
       .setDesc("Path prefixes to ignore globally. Block-level exclude adds to this list.")
       .setHeading();
 
-    for (const path of this.plugin.settings.exclude) {
-      new Setting(containerEl)
-        .setName(path)
-        .addButton((btn) =>
-          btn.setIcon("x").setTooltip("Remove").onClick(async () => {
-            this.plugin.settings.exclude = this.plugin.settings.exclude.filter((p) => p !== path);
-            await this.plugin.saveSettings();
-            this.display();
-          })
-        );
-    }
+    // Isolated container so add/remove only re-renders the folder rows,
+    // not the entire settings tab (which would wipe unsaved sibling fields).
+    const listEl = containerEl.createDiv();
+
+    const renderList = () => {
+      listEl.empty();
+      for (const path of this.plugin.settings.exclude) {
+        new Setting(listEl)
+          .setName(path)
+          .addButton((btn) =>
+            btn.setIcon("x").setTooltip("Remove").onClick(async () => {
+              this.plugin.settings.exclude = this.plugin.settings.exclude.filter((p) => p !== path);
+              await this.plugin.saveSettings();
+              renderList();
+            })
+          );
+      }
+    };
+    renderList();
 
     new Setting(containerEl).setName("Add folder").addText((t) => {
       t.setPlaceholder("Folder path…");
       this.folderSuggest = new FolderSuggest(this.app, t.inputEl);
       this.folderSuggest.onSelect(async (folder) => {
-        await this.addExclusion(folder.path);
+        await this.addExclusion(folder.path, renderList);
       });
       t.inputEl.addEventListener("keydown", async (e) => {
         if (e.key === "Enter") {
           e.preventDefault();
-          await this.addExclusion(t.getValue().trim());
+          await this.addExclusion(t.getValue().trim(), renderList);
         }
       });
     });
