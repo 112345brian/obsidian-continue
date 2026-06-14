@@ -1,7 +1,8 @@
 import { App, MarkdownRenderChild, MarkdownRenderer, TFile, setIcon } from "obsidian";
 import type { MarkdownPostProcessorContext } from "obsidian";
-import { BlockConfig } from "./parseBlockConfig";
-import type { ContinueNoteSettings } from "./settings";
+import { BlockConfig, Slot } from "./parseBlockConfig";
+import { getTrashCollectionApi } from "../../obsidian-trash-collection/src/api";
+import type { ContinueNoteSettings, SortBy } from "./settings";
 
 interface BCGraph {
   get_outgoing_edges(path: string): { to_array(): Array<{ edge_type?: string; target?: string; target_path?: (g: BCGraph) => string }> };
@@ -102,6 +103,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     private app: App,
     private config: BlockConfig,
     private settings: ContinueNoteSettings,
+    private openedLog: string[],
     el: HTMLElement,
     private ctx: MarkdownPostProcessorContext
   ) {
@@ -116,24 +118,67 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     this.containerEl.empty();
 
     const exclude = [...this.settings.exclude, ...this.config.exclude];
-    const candidates = this.app.vault
-      .getMarkdownFiles()
-      .filter((f) => {
-        if (f.path === this.ctx.sourcePath) return false;
-        return !exclude.some((prefix) => f.path.startsWith(prefix));
-      })
-      .sort((a, b) => b.stat.mtime - a.stat.mtime);
+    const { sortFrontmatterField } = this.settings;
 
-    const count = this.config.count ?? this.settings.count;
-    const targets = candidates.slice(0, count);
+    const scoreFor = (sortBy: SortBy) => (f: TFile): number => {
+      if (sortBy === "created") return f.stat.ctime;
+      if (sortBy === "frontmatter") {
+        const val = this.app.metadataCache.getFileCache(f)?.frontmatter?.[sortFrontmatterField];
+        if (val) { const t = Date.parse(String(val)); if (!isNaN(t)) return t; }
+        return 0;
+      }
+      if (sortBy === "opened") {
+        const idx = this.openedLog.indexOf(f.path);
+        return idx === -1 ? 0 : this.openedLog.length - idx;
+      }
+      return f.stat.mtime;
+    };
 
-    if (targets.length === 0) {
+    const pool = this.app.vault.getMarkdownFiles().filter((f) => {
+      if (f.path === this.ctx.sourcePath) return false;
+      return !exclude.some((prefix) => f.path.startsWith(prefix));
+    });
+
+    // Resolve slots — either from block config or global setting
+    const slots: Slot[] = this.config.slots ?? [
+      { sortBy: this.settings.sortBy, count: this.settings.count },
+    ];
+
+    const trashApi = getTrashCollectionApi(this.app);
+
+    // Pick targets slot by slot, deduping across slots
+    const seen = new Set<string>();
+    const targets: TFile[] = [];
+    for (const slot of slots) {
+      if (slot.sortBy === "orphan") {
+        if (!trashApi) continue;
+        const orphans = trashApi.getCandidates()
+          .filter((f) => !seen.has(f.path) && !exclude.some((p) => f.path.startsWith(p)));
+        for (const f of orphans.slice(0, slot.count)) {
+          seen.add(f.path);
+          targets.push(f);
+        }
+        continue;
+      }
+      const sorted = [...pool].sort((a, b) => scoreFor(slot.sortBy)(b) - scoreFor(slot.sortBy)(a));
+      let picked = 0;
+      for (const f of sorted) {
+        if (seen.has(f.path)) continue;
+        seen.add(f.path);
+        targets.push(f);
+        if (++picked >= slot.count) break;
+      }
+    }
+
+    const capped = targets.slice(0, this.settings.maxTotal);
+
+    if (capped.length === 0) {
       const wrapper = this.containerEl.createDiv({ cls: "continue-note-block" });
       wrapper.createDiv({ cls: "continue-note-block__empty", text: "No notes found." });
       return;
     }
 
-    for (const target of targets) {
+    for (const target of capped) {
       await this.renderCard(target);
     }
   }
@@ -158,7 +203,8 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     });
 
     const meta = header.createDiv({ cls: "continue-note-block__meta" });
-    meta.createSpan({ text: relativeTime(target.stat.mtime) });
+    const timeVal = this.settings.sortBy === "created" ? target.stat.ctime : target.stat.mtime;
+    meta.createSpan({ text: relativeTime(timeVal) });
 
     const graph = getBCGraph(this.app);
     const chain = graph ? getBCParentChain(graph, target.path, this.app) : [];
@@ -169,6 +215,19 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     if (location) {
       meta.createSpan({ cls: "continue-note-block__meta-sep", text: "·" });
       meta.createSpan({ text: location });
+    }
+
+    const fields = this.config.frontmatterFields ?? this.settings.frontmatterFields;
+    if (fields.length > 0) {
+      const fm = this.app.metadataCache.getFileCache(target)?.frontmatter ?? {};
+      const fmRow = header.createDiv({ cls: "continue-note-block__fm" });
+      for (const key of fields) {
+        const val = fm[key];
+        if (val == null) continue;
+        const chip = fmRow.createSpan({ cls: "continue-note-block__fm-chip" });
+        chip.createSpan({ cls: "continue-note-block__fm-key", text: key });
+        chip.createSpan({ cls: "continue-note-block__fm-val", text: Array.isArray(val) ? val.join(", ") : String(val) });
+      }
     }
 
     wrapper.createEl("hr", { cls: "continue-note-block__divider" });

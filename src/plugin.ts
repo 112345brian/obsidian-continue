@@ -70,6 +70,27 @@ const STYLES = `
 .continue-note-block__meta-sep {
   margin: 0 4px;
 }
+.continue-note-block__fm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.continue-note-block__fm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75em;
+  background: var(--background-modifier-hover);
+  border-radius: var(--radius-s);
+  padding: 1px 6px;
+}
+.continue-note-block__fm-key {
+  color: var(--text-faint);
+}
+.continue-note-block__fm-val {
+  color: var(--text-muted);
+}
 .continue-note-block__divider {
   border: none;
   border-top: 1px solid var(--background-modifier-border);
@@ -131,8 +152,11 @@ const STYLES = `
 }
 `;
 
+const OPENED_LOG_MAX = 500;
+
 export default class ContinueNotePlugin extends Plugin {
   settings: ContinueNoteSettings;
+  openedLog: string[] = []; // most-recently-opened paths, newest first
 
   async onload() {
     await this.loadSettings();
@@ -144,20 +168,33 @@ export default class ContinueNotePlugin extends Plugin {
 
     this.addSettingTab(new ContinueNoteSettingsTab(this.app, this));
 
+    this.registerEvent(
+      this.app.workspace.on("file-open", (file) => {
+        if (!file) return;
+        this.openedLog = [
+          file.path,
+          ...this.openedLog.filter((p) => p !== file.path),
+        ].slice(0, OPENED_LOG_MAX);
+        this.saveSettings();
+      })
+    );
+
     this.registerMarkdownCodeBlockProcessor(
       "continue-note",
       (source, el, ctx) => {
         const config = parseBlockConfig(source);
-        ctx.addChild(new ContinueNoteChild(this.app, config, this.settings, el, ctx));
+        ctx.addChild(new ContinueNoteChild(this.app, config, this.settings, this.openedLog, el, ctx));
       }
     );
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const data = await this.loadData() ?? {};
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings ?? data);
+    this.openedLog = Array.isArray(data.openedLog) ? data.openedLog : [];
   }
 
   async saveSettings() {
-    await this.saveData(this.settings);
+    await this.saveData({ settings: this.settings, openedLog: this.openedLog });
   }
 }

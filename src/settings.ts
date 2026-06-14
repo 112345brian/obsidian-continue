@@ -1,9 +1,15 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type ContinueNotePlugin from "./plugin";
 
+export type SortBy = "modified" | "created" | "frontmatter" | "opened" | "orphan";
+
 export interface ContinueNoteSettings {
   count: number;
+  maxTotal: number;
   exclude: string[];
+  frontmatterFields: string[];
+  sortBy: SortBy;
+  sortFrontmatterField: string;
   smartMode: boolean;
   smartAbsoluteMax: number;
   shortNoteThreshold: number;
@@ -12,7 +18,11 @@ export interface ContinueNoteSettings {
 
 export const DEFAULT_SETTINGS: ContinueNoteSettings = {
   count: 1,
+  maxTotal: 6,
   exclude: [],
+  frontmatterFields: [],
+  sortBy: "modified",
+  sortFrontmatterField: "date-modified",
   smartMode: true,
   smartAbsoluteMax: 10,
   shortNoteThreshold: 9,
@@ -27,6 +37,54 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
+
+    new Setting(containerEl)
+      .setName("Sort by")
+      .setDesc("What signal determines which note is most recent.")
+      .addDropdown((d) =>
+        d
+          .addOption("modified", "Last modified (file system)")
+          .addOption("created", "Last created (file system)")
+          .addOption("frontmatter", "Frontmatter field")
+          .addOption("opened", "Last opened in Obsidian")
+          .addOption("orphan", "Orphan notes (via Trash Collection plugin)")
+          .setValue(this.plugin.settings.sortBy)
+          .onChange(async (val) => {
+            this.plugin.settings.sortBy = val as SortBy;
+            await this.plugin.saveSettings();
+            this.display();
+          })
+      );
+
+    if (this.plugin.settings.sortBy === "frontmatter") {
+      new Setting(containerEl)
+        .setName("Frontmatter date field")
+        .setDesc("The property name to sort by (must contain a parseable date).")
+        .addText((t) =>
+          t
+            .setPlaceholder("date-modified")
+            .setValue(this.plugin.settings.sortFrontmatterField)
+            .onChange(async (val) => {
+              this.plugin.settings.sortFrontmatterField = val.trim();
+              await this.plugin.saveSettings();
+            })
+        );
+    }
+
+    new Setting(containerEl)
+      .setName("Max notes total")
+      .setDesc("Hard cap on how many notes the block can show, regardless of slot config.")
+      .addText((text) =>
+        text
+          .setValue(String(this.plugin.settings.maxTotal))
+          .onChange(async (val) => {
+            const n = parseInt(val, 10);
+            if (!isNaN(n) && n > 0) {
+              this.plugin.settings.maxTotal = n;
+              await this.plugin.saveSettings();
+            }
+          })
+      );
 
     new Setting(containerEl)
       .setName("Notes to show")
@@ -55,6 +113,19 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
       });
+
+    new Setting(containerEl)
+      .setName("Frontmatter fields")
+      .setDesc("Comma-separated frontmatter properties to show under the title (e.g. status, tags). Leave empty to show none.")
+      .addText((text) =>
+        text
+          .setPlaceholder("status, tags")
+          .setValue(this.plugin.settings.frontmatterFields.join(", "))
+          .onChange(async (val) => {
+            this.plugin.settings.frontmatterFields = val.split(",").map((s) => s.trim()).filter(Boolean);
+            await this.plugin.saveSettings();
+          })
+      );
 
     new Setting(containerEl)
       .setName("Smart mode")
