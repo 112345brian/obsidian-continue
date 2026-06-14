@@ -207,64 +207,45 @@ export class ContinueNoteSettingsTab extends PluginSettingTab {
       );
   }
 
-  // Normalize a raw path to a trailing-slash prefix and append it to the
-  // exclude list if not already present. Returns true when a chip was added.
-  private async addExclusion(rawPath: string, renderChips: () => void): Promise<boolean> {
-    if (!rawPath) return false;
+  private async addExclusion(rawPath: string): Promise<void> {
+    if (!rawPath) return;
     const normalized = rawPath.endsWith("/") ? rawPath : rawPath + "/";
-    if (this.plugin.settings.exclude.includes(normalized)) return false;
+    if (this.plugin.settings.exclude.includes(normalized)) return;
     this.plugin.settings.exclude = [...this.plugin.settings.exclude, normalized];
     await this.plugin.saveSettings();
-    renderChips();
-    return true;
+    this.display();
   }
 
   private renderExcludeFolders(containerEl: HTMLElement): void {
-    const setting = new Setting(containerEl)
+    new Setting(containerEl)
       .setName("Excluded folders")
-      .setDesc("Path prefixes to ignore globally. Block-level exclude adds to this list.");
+      .setDesc("Path prefixes to ignore globally. Block-level exclude adds to this list.")
+      .setHeading();
 
-    const tagWrap = setting.controlEl.createDiv({ cls: "cn-tag-input" });
+    for (const path of this.plugin.settings.exclude) {
+      new Setting(containerEl)
+        .setName(path)
+        .addButton((btn) =>
+          btn.setIcon("x").setTooltip("Remove").onClick(async () => {
+            this.plugin.settings.exclude = this.plugin.settings.exclude.filter((p) => p !== path);
+            await this.plugin.saveSettings();
+            this.display();
+          })
+        );
+    }
 
-    // Input and suggest are created once per display() call.
-    const input = tagWrap.createEl("input", {
-      cls: "cn-tag-input__field",
-      attr: { placeholder: "Add folder…", type: "text" },
-    }) as HTMLInputElement;
-
-    const suggest = new FolderSuggest(this.app, input);
-    this.folderSuggest = suggest;
-
-    const renderChips = () => {
-      tagWrap.querySelectorAll<HTMLElement>(".cn-tag-chip").forEach((el) => el.remove());
-
-      for (const path of this.plugin.settings.exclude) {
-        // createSpan appends to tagWrap; insertBefore repositions before input.
-        const chip = tagWrap.createSpan({ cls: "cn-tag-chip" });
-        chip.createSpan({ text: path });
-        const x = chip.createSpan({ cls: "cn-tag-chip__remove", text: "×" });
-        x.addEventListener("click", async () => {
-          this.plugin.settings.exclude = this.plugin.settings.exclude.filter((p) => p !== path);
-          await this.plugin.saveSettings();
-          renderChips();
-        });
-        tagWrap.insertBefore(chip, input);
-      }
-    };
-
-    suggest.onSelect(async (folder) => {
-      await this.addExclusion(folder.path, renderChips);
-      input.value = "";
+    new Setting(containerEl).setName("Add folder").addText((t) => {
+      t.setPlaceholder("Folder path…");
+      this.folderSuggest = new FolderSuggest(this.app, t.inputEl);
+      this.folderSuggest.onSelect(async (folder) => {
+        await this.addExclusion(folder.path);
+      });
+      t.inputEl.addEventListener("keydown", async (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          await this.addExclusion(t.getValue().trim());
+        }
+      });
     });
-
-    input.addEventListener("keydown", async (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        await this.addExclusion(input.value.trim(), renderChips);
-        input.value = "";
-      }
-    });
-
-    renderChips();
   }
 }
