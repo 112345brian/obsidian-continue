@@ -106,6 +106,7 @@ function relativeTime(mtime: number): string {
 
 export class ContinueNoteChild extends MarkdownRenderChild {
   private rendering = false;
+  private pendingRender = false;
 
   constructor(
     private app: App,
@@ -129,13 +130,24 @@ export class ContinueNoteChild extends MarkdownRenderChild {
   }
 
   async render() {
-    if (this.rendering) return;
+    if (this.rendering) {
+      this.pendingRender = true;
+      return;
+    }
     this.rendering = true;
     try {
       await this._render();
     } finally {
       this.rendering = false;
+      if (this.pendingRender) {
+        this.pendingRender = false;
+        void this.render();
+      }
     }
+  }
+
+  private isExcluded(path: string, exclude: string[]): boolean {
+    return exclude.some((p) => path.startsWith(p));
   }
 
   private async _render() {
@@ -164,7 +176,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
 
     const pool = this.app.vault.getMarkdownFiles().filter((f) => {
       if (f.path === this.ctx.sourcePath) return false;
-      return !exclude.some((prefix) => f.path.startsWith(prefix));
+      return !this.isExcluded(f.path, exclude);
     });
 
     const slots: Slot[] = this.config.slots ?? [
@@ -187,7 +199,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
       if (slot.sortBy === "orphan") {
         if (!trashApi) continue;
         const orphans = trashApi.getCandidates()
-          .filter((f) => f.path !== this.ctx.sourcePath && !seen.has(f.path) && !exclude.some((p) => f.path.startsWith(p)));
+          .filter((f) => f.path !== this.ctx.sourcePath && !seen.has(f.path) && !this.isExcluded(f.path, exclude));
         for (const f of orphans.slice(0, slotMax)) {
           seen.add(f.path);
           files.push(f);
@@ -210,7 +222,8 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     }
 
     if (groups.length === 0) {
-      const wrapper = this.containerEl.createDiv({ cls: "continue-note-block" });
+      const groupEl = this.containerEl.createDiv({ cls: "continue-note-group" });
+      const wrapper = groupEl.createDiv({ cls: "continue-note-block" });
       wrapper.createDiv({ cls: "continue-note-block__empty", text: "No notes found." });
       return;
     }
@@ -220,12 +233,21 @@ export class ContinueNoteChild extends MarkdownRenderChild {
       if (showLabels) {
         this.containerEl.createDiv({ cls: "continue-note-block__section", text: group.label });
       }
-      for (const f of group.files) await this.renderCard(f, group.slotSortBy);
+      const groupEl = this.containerEl.createDiv({ cls: "continue-note-group" });
+      const fmScorer = group.slotSortBy === "frontmatter" ? scoreFor("frontmatter") : null;
+      for (const f of group.files) {
+        const timeVal = group.slotSortBy === "created"
+          ? f.stat.ctime
+          : fmScorer
+            ? (fmScorer(f) || f.stat.mtime)
+            : f.stat.mtime;
+        await this.renderCard(f, timeVal, groupEl);
+      }
     }
   }
 
-  async renderCard(target: TFile, slotSortBy: SortBy) {
-    const wrapper = this.containerEl.createDiv({ cls: "continue-note-block" });
+  private async renderCard(target: TFile, timeVal: number, groupEl: HTMLElement) {
+    const wrapper = groupEl.createDiv({ cls: "continue-note-block" });
 
     const header = wrapper.createDiv({ cls: "continue-note-block__header" });
 
@@ -253,7 +275,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
         } catch (e) {
           new Notice(`Categorize failed: ${e instanceof Error ? e.message : String(e)}`);
         } finally {
-          await this.render();
+          await this.render().catch(() => {});
         }
       }).open();
     });
@@ -273,8 +295,6 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     });
 
     const meta = header.createDiv({ cls: "continue-note-block__meta" });
-    // Use the slot's own sortBy for the timestamp so multi-slot blocks show the right date
-    const timeVal = slotSortBy === "created" ? target.stat.ctime : target.stat.mtime;
     meta.createSpan({ text: relativeTime(timeVal) });
 
     const graph = getBCGraph(this.app);

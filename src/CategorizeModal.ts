@@ -1,14 +1,14 @@
 import { App, Modal, Setting, TFile } from "obsidian";
 
 function normalizeWikilink(s: string): string {
-  s = s.trim();
-  if (!s || s.startsWith("[[")) return s;
-  return `[[${s}]]`;
+  // Strip any stray leading [ or trailing ] before re-wrapping
+  s = s.trim().replace(/^\[+/, "").replace(/\]+$/, "");
+  return s ? `[[${s}]]` : s;
 }
 
 export class CategorizeModal extends Modal {
   private fieldInput: string;
-  private fieldChanged = false;
+  private originalInput: string;
   private folderInput = "";
 
   constructor(
@@ -23,6 +23,7 @@ export class CategorizeModal extends Modal {
     this.fieldInput = Array.isArray(currentVal)
       ? currentVal.map(String).join("\n")
       : currentVal != null ? String(currentVal) : "";
+    this.originalInput = this.fieldInput;
   }
 
   onOpen() {
@@ -33,10 +34,7 @@ export class CategorizeModal extends Modal {
       .setName(this.fieldName)
       .setDesc("Use [[Note Name]] syntax. Separate multiple values with newlines.")
       .addTextArea((ta) => {
-        ta.setValue(this.fieldInput).onChange((v) => {
-          this.fieldInput = v;
-          this.fieldChanged = true;
-        });
+        ta.setValue(this.fieldInput).onChange((v) => { this.fieldInput = v; });
         ta.inputEl.rows = 3;
         ta.inputEl.style.cssText = "width:100%;font-family:var(--font-monospace)";
       });
@@ -54,7 +52,7 @@ export class CategorizeModal extends Modal {
         btn.setButtonText("Save").setCta().onClick(async () => {
           this.close();
           let fieldVal: string | string[] | null | undefined;
-          if (this.fieldChanged) {
+          if (this.fieldInput !== this.originalInput) {
             const lines = this.fieldInput.split("\n").map(normalizeWikilink).filter(Boolean);
             fieldVal = lines.length === 0 ? null : lines.length > 1 ? lines : lines[0];
           }

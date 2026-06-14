@@ -15,19 +15,14 @@ const STYLES = `
   gap: 0;
   margin-bottom: 0;
 }
-/* First card in a group gets a top border and top rounding */
-.continue-note-block:first-child,
-.continue-note-block__section + .continue-note-block {
+.continue-note-group .continue-note-block:first-child {
   border-top: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l) var(--radius-l) 0 0;
 }
-/* Last card in a group (not immediately followed by another card) gets bottom rounding */
-.continue-note-block:not(:has(+ .continue-note-block)) {
+.continue-note-group .continue-note-block:last-child {
   border-radius: 0 0 var(--radius-l) var(--radius-l);
 }
-/* Single card: fully rounded */
-.continue-note-block:first-child:not(:has(+ .continue-note-block)),
-.continue-note-block__section + .continue-note-block:not(:has(+ .continue-note-block)) {
+.continue-note-group .continue-note-block:first-child:last-child {
   border-radius: var(--radius-l);
 }
 .continue-note-block__header {
