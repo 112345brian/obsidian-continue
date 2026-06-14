@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.3 — 2026-06-14
+
+### Fixes
+
+- **Pending render queue**: rapid `active-leaf-change` events no longer silently drop re-renders — a `pendingRender` flag queues one follow-up render so the last state is always shown
+- **CategorizeModal — accidental field deletion**: the modal now compares the textarea value against the original at save time (`originalInput`) instead of tracking a `fieldChanged` boolean; if the user clears the field and saves, that still deletes the property as intended, but reverting to the original text is now a no-op rather than a redundant frontmatter write
+- **CategorizeModal — malformed wikilinks**: `normalizeWikilink` now strips stray leading `[` or trailing `]` before re-wrapping, so pasted text like `Foo]]` becomes `[[Foo]]` rather than `[[Foo]]]]`
+- **Unhandled rejection in categorize**: `finally { await this.render() }` now uses `.catch(() => {})` to prevent render errors from propagating as unhandled rejections
+- **Timestamp on frontmatter-sorted slots**: cards in a `frontmatter` slot now display the frontmatter date that drove their ranking rather than falling back to `mtime`
+- **Duplicate exclude predicate**: extracted `isExcluded(path, exclude)` helper — the `startsWith` exclusion check was duplicated between the pool filter and orphan filter
+- **Connected card borders**: each slot group's cards are now wrapped in a `.continue-note-group` container; border-radius is applied with `:first-child`/`:last-child` instead of `:has()` sibling selectors, which is more robust if sibling elements are ever injected between cards
+
+### Settings
+
+- **Excluded folders UI**: replaced the custom tag-chip widget with the idiomatic Obsidian pattern — one Setting row per excluded path (with a remove button) and an "Add folder" Setting at the bottom; add/remove calls `display()` to re-render
+
 ## 0.2.2 — 2026-06-14
 
 - **Excluded folders autosuggest**: replaced the plain-text comma input with a tag-chip UI backed by `FolderSuggest` — type to get vault folder completions, select to add a chip, click × to remove
@@ -67,6 +83,7 @@ Initial release.
 | Max notes total | 6 | Hard cap across all slots |
 | Notes to show | 1 | Default count when no slots are specified |
 | Excluded folders | — | Global path prefixes to ignore |
+| Categorize field | up | Frontmatter property edited by the categorize button on each card |
 | Frontmatter fields | — | Properties to display as chips |
 | Smart mode | on | Log-scaled tail truncation |
 | Max lines (smart ceiling) | 10 | Upper bound for smart cap |
