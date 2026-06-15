@@ -1,10 +1,6 @@
 # Changelog
 
-## 0.2.4 — 2026-06-15
-
-### Performance
-
-- **Render cache for fast mobile reopen**: after each render the card data (title, path, timestamp, location, frontmatter chips, markdown preview chunks) is persisted to `data.json`. On the next cold open the cached view renders immediately — with no file I/O, only `MarkdownRenderer.render` on the already-computed markdown — while a fresh render runs in the background and swaps in when done. Action buttons (categorize, trash) remain fully functional in the cached view because they resolve the live `TFile` at click time.
+## 0.2.5 — 2026-06-15
 
 ### Settings
 

@@ -5,20 +5,6 @@ import { getTrashCollectionApi } from "./TrashCollectionApi";
 import { CategorizeModal } from "./CategorizeModal";
 import type { ContinueNoteSettings, SortBy } from "./settings";
 
-export interface CachedCard {
-  path: string;
-  basename: string;
-  timeVal: number;
-  location: string | null;
-  fmFields: Array<{ key: string; val: string }>;
-  chunks: Array<{ md: string; skippedBefore: number }>;
-}
-
-export interface CachedGroup {
-  label: string;
-  cards: CachedCard[];
-}
-
 interface BCGraph {
   get_outgoing_edges(path: string): { to_array(): Array<{ edge_type?: string; target?: string; target_path?: (g: BCGraph) => string }> };
   get_incoming_edges(path: string): { to_array(): Array<{ edge_type?: string; source?: string; source_path?: (g: BCGraph) => string }> };
@@ -127,8 +113,6 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     private config: BlockConfig,
     private settings: ContinueNoteSettings,
     private getOpenedLog: () => string[],
-    private getCache: (key: string) => CachedGroup[] | undefined,
-    private setCache: (key: string, groups: CachedGroup[]) => Promise<void>,
     el: HTMLElement,
     private ctx: MarkdownPostProcessorContext
   ) {
@@ -136,17 +120,13 @@ export class ContinueNoteChild extends MarkdownRenderChild {
   }
 
   async onload() {
-    const cached = this.getCache(this.ctx.sourcePath);
-    if (cached) {
-      await this._renderFromCache(cached);
-    }
+    await this.render();
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", async () => {
         const active = this.app.workspace.getActiveFile();
         if (active?.path === this.ctx.sourcePath) await this.render();
       })
     );
-    void this.render();
   }
 
   async render() {
@@ -167,7 +147,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
   }
 
   private isExcluded(path: string, exclude: string[]): boolean {
-    return exclude.some((p) => path.startsWith(p) || path === p.slice(0, -1));
+    return exclude.some((p) => path.startsWith(p));
   }
 
   private async _render() {
@@ -176,6 +156,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     const exclude = [...this.settings.exclude, ...this.config.exclude];
     const { sortFrontmatterField } = this.settings;
 
+    // Build a scorer per sortBy — opener uses a Map for O(1) lookup instead of indexOf
     const scoreFor = (sortBy: SortBy): (f: TFile) => number => {
       if (sortBy === "opened") {
         const log = this.getOpenedLog();
@@ -204,6 +185,8 @@ export class ContinueNoteChild extends MarkdownRenderChild {
 
     const trashApi = getTrashCollectionApi(this.app);
 
+    // Resolve slots with maxTotal cap applied inline so seen is never
+    // populated beyond what will actually be rendered.
     const seen = new Set<string>();
     const groups: Array<{ label: string; files: TFile[]; slotSortBy: SortBy }> = [];
     let remaining = this.settings.maxTotal;
@@ -242,11 +225,9 @@ export class ContinueNoteChild extends MarkdownRenderChild {
       const groupEl = this.containerEl.createDiv({ cls: "continue-note-group" });
       const wrapper = groupEl.createDiv({ cls: "continue-note-block" });
       wrapper.createDiv({ cls: "continue-note-block__empty", text: "No notes found." });
-      await this.setCache(this.ctx.sourcePath, []);
       return;
     }
 
-    const cachedGroups: CachedGroup[] = [];
     const showLabels = groups.length > 1;
     for (const group of groups) {
       if (showLabels) {
@@ -254,55 +235,93 @@ export class ContinueNoteChild extends MarkdownRenderChild {
       }
       const groupEl = this.containerEl.createDiv({ cls: "continue-note-group" });
       const fmScorer = group.slotSortBy === "frontmatter" ? scoreFor("frontmatter") : null;
-      const cachedCards: CachedCard[] = [];
       for (const f of group.files) {
         const timeVal = group.slotSortBy === "created"
           ? f.stat.ctime
           : fmScorer
             ? (fmScorer(f) || f.stat.mtime)
             : f.stat.mtime;
-        const card = await this.renderCard(f, timeVal, groupEl);
-        cachedCards.push(card);
-      }
-      cachedGroups.push({ label: group.label, cards: cachedCards });
-    }
-
-    await this.setCache(this.ctx.sourcePath, cachedGroups);
-  }
-
-  private async _renderFromCache(groups: CachedGroup[]) {
-    this.containerEl.empty();
-    if (groups.length === 0) return;
-
-    const showLabels = groups.length > 1;
-    for (const group of groups) {
-      if (showLabels) {
-        this.containerEl.createDiv({ cls: "continue-note-block__section", text: group.label });
-      }
-      const groupEl = this.containerEl.createDiv({ cls: "continue-note-group" });
-      for (const card of group.cards) {
-        await this.renderCardFromData(card, groupEl);
+        await this.renderCard(f, timeVal, groupEl);
       }
     }
   }
 
-  private async renderCard(target: TFile, timeVal: number, groupEl: HTMLElement): Promise<CachedCard> {
+  private async renderCard(target: TFile, timeVal: number, groupEl: HTMLElement) {
+    const wrapper = groupEl.createDiv({ cls: "continue-note-block" });
+
+    const header = wrapper.createDiv({ cls: "continue-note-block__header" });
+
+    const actions = header.createEl("span", { cls: "continue-note-block__actions" });
+
+    const catBtn = actions.createEl("span", { cls: "continue-note-block__action-btn" });
+    setIcon(catBtn, "link-2");
+    catBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const fm = this.app.metadataCache.getFileCache(target)?.frontmatter ?? {};
+      const field = this.settings.categorizeField;
+      new CategorizeModal(this.app, target, field, fm[field] ?? null, async (newVal, newFolder) => {
+        try {
+          // newVal is undefined when the user didn't edit the field — skip frontmatter write
+          if (newVal !== undefined) {
+            await this.app.fileManager.processFrontMatter(target, (data) => {
+              if (newVal === null) delete data[field];
+              else data[field] = newVal;
+            });
+          }
+          if (newFolder) {
+            const newPath = normalizePath(newFolder + "/" + target.name);
+            await this.app.fileManager.renameFile(target, newPath);
+          }
+        } catch (e) {
+          new Notice(`Categorize failed: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          await this.render().catch(() => {});
+        }
+      }).open();
+    });
+
+    const trashBtn = actions.createEl("span", { cls: "continue-note-block__action-btn continue-note-block__action-btn--trash" });
+    setIcon(trashBtn, "trash");
+    trashBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await this.app.vault.trash(target, true);
+      await this.render();
+    });
+
+    const titleEl = header.createDiv({ cls: "continue-note-block__title" });
+    titleEl.textContent = target.basename;
+    titleEl.addEventListener("click", () => {
+      this.app.workspace.openLinkText(target.path, this.ctx.sourcePath ?? "", false);
+    });
+
+    const meta = header.createDiv({ cls: "continue-note-block__meta" });
+    meta.createSpan({ text: relativeTime(timeVal) });
+
     const graph = getBCGraph(this.app);
     const chain = graph ? getBCParentChain(graph, target.path, this.app) : [];
     const location = chain.length > 0
       ? chain.join(" › ")
       : (target.parent?.name && target.parent.name !== "/" ? target.parent.name : null);
 
+    if (location) {
+      meta.createSpan({ cls: "continue-note-block__meta-sep", text: "·" });
+      meta.createSpan({ text: location });
+    }
+
     const fields = this.config.frontmatterFields ?? this.settings.frontmatterFields;
-    const fmFields: Array<{ key: string; val: string }> = [];
     if (fields.length > 0) {
       const fm = this.app.metadataCache.getFileCache(target)?.frontmatter ?? {};
+      const fmRow = header.createDiv({ cls: "continue-note-block__fm" });
       for (const key of fields) {
         const val = fm[key];
         if (val == null) continue;
-        fmFields.push({ key, val: Array.isArray(val) ? val.join(", ") : String(val) });
+        const chip = fmRow.createSpan({ cls: "continue-note-block__fm-chip" });
+        chip.createSpan({ cls: "continue-note-block__fm-key", text: key });
+        chip.createSpan({ cls: "continue-note-block__fm-val", text: Array.isArray(val) ? val.join(", ") : String(val) });
       }
     }
+
+    wrapper.createEl("hr", { cls: "continue-note-block__divider" });
 
     const raw = await this.app.vault.read(target);
     const body = raw.replace(FRONTMATTER_RE, "").trimStart();
@@ -316,6 +335,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
     };
 
     const { smartMode, smartAbsoluteMax, shortNoteThreshold, maxLines } = this.settings;
+
     const chunks: Array<{ md: string; skippedBefore: number }> = [];
 
     if (lines.length <= shortNoteThreshold) {
@@ -358,83 +378,9 @@ export class ContinueNoteChild extends MarkdownRenderChild {
       chunks.push({ md: lines.slice(0, end).join("\n"), skippedBefore: 0 });
     }
 
-    const card: CachedCard = { path: target.path, basename: target.basename, timeVal, location, fmFields, chunks };
-    await this.renderCardFromData(card, groupEl);
-    return card;
-  }
-
-  private async renderCardFromData(card: CachedCard, groupEl: HTMLElement): Promise<void> {
-    const wrapper = groupEl.createDiv({ cls: "continue-note-block" });
-
-    const header = wrapper.createDiv({ cls: "continue-note-block__header" });
-
-    const actions = header.createEl("span", { cls: "continue-note-block__actions" });
-
-    const catBtn = actions.createEl("span", { cls: "continue-note-block__action-btn" });
-    setIcon(catBtn, "link-2");
-    catBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const file = this.app.vault.getAbstractFileByPath(card.path);
-      if (!(file instanceof TFile)) return;
-      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
-      const field = this.settings.categorizeField;
-      new CategorizeModal(this.app, file, field, fm[field] ?? null, async (newVal, newFolder) => {
-        try {
-          if (newVal !== undefined) {
-            await this.app.fileManager.processFrontMatter(file, (data) => {
-              if (newVal === null) delete data[field];
-              else data[field] = newVal;
-            });
-          }
-          if (newFolder) {
-            const newPath = normalizePath(newFolder + "/" + file.name);
-            await this.app.fileManager.renameFile(file, newPath);
-          }
-        } catch (e) {
-          new Notice(`Categorize failed: ${e instanceof Error ? e.message : String(e)}`);
-        } finally {
-          await this.render().catch(() => {});
-        }
-      }).open();
-    });
-
-    const trashBtn = actions.createEl("span", { cls: "continue-note-block__action-btn continue-note-block__action-btn--trash" });
-    setIcon(trashBtn, "trash");
-    trashBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const file = this.app.vault.getAbstractFileByPath(card.path);
-      if (file instanceof TFile) await this.app.vault.trash(file, true);
-      await this.render();
-    });
-
-    const titleEl = header.createDiv({ cls: "continue-note-block__title" });
-    titleEl.textContent = card.basename;
-    titleEl.addEventListener("click", () => {
-      this.app.workspace.openLinkText(card.path, this.ctx.sourcePath ?? "", false);
-    });
-
-    const meta = header.createDiv({ cls: "continue-note-block__meta" });
-    meta.createSpan({ text: relativeTime(card.timeVal) });
-
-    if (card.location) {
-      meta.createSpan({ cls: "continue-note-block__meta-sep", text: "·" });
-      meta.createSpan({ text: card.location });
-    }
-
-    if (card.fmFields.length > 0) {
-      const fmRow = header.createDiv({ cls: "continue-note-block__fm" });
-      for (const { key, val } of card.fmFields) {
-        const chip = fmRow.createSpan({ cls: "continue-note-block__fm-chip" });
-        chip.createSpan({ cls: "continue-note-block__fm-key", text: key });
-        chip.createSpan({ cls: "continue-note-block__fm-val", text: val });
-      }
-    }
-
-    wrapper.createEl("hr", { cls: "continue-note-block__divider" });
-
-    if (card.chunks.some((c) => c.md.trim())) {
+    if (chunks.some((c) => c.md.trim())) {
       const previewEl = wrapper.createDiv({ cls: "continue-note-block__preview" });
-      for (const chunk of card.chunks) {
+      for (const chunk of chunks) {
         if (chunk.skippedBefore > 0) {
           previewEl.createDiv({
             cls: "continue-note-block__skip",
@@ -443,7 +389,7 @@ export class ContinueNoteChild extends MarkdownRenderChild {
         }
         if (chunk.md.trim()) {
           const mdEl = previewEl.createDiv();
-          await MarkdownRenderer.render(this.app, closeOpenFences(chunk.md), mdEl, card.path, this);
+          await MarkdownRenderer.render(this.app, closeOpenFences(chunk.md), mdEl, target.path, this);
         }
       }
     }
