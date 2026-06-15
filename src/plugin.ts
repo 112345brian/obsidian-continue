@@ -1,6 +1,6 @@
 import { Plugin } from "obsidian";
 import { parseBlockConfig } from "./parseBlockConfig";
-import { ContinueNoteChild } from "./ContinueNoteRenderer";
+import { CachedGroup, ContinueNoteChild } from "./ContinueNoteRenderer";
 import { ContinueNoteSettings, ContinueNoteSettingsTab, DEFAULT_SETTINGS } from "./settings";
 
 const STYLES = `
@@ -77,6 +77,7 @@ const STYLES = `
   cursor: pointer;
   line-height: 1.3;
   margin: 0;
+  padding-right: 44px;
 }
 .continue-note-block__title:hover {
   color: var(--text-accent);
@@ -197,7 +198,8 @@ const OPENED_LOG_MAX = 500;
 
 export default class ContinueNotePlugin extends Plugin {
   settings: ContinueNoteSettings;
-  openedLog: string[] = []; // most-recently-opened paths, newest first
+  openedLog: string[] = [];
+  renderCache: Record<string, CachedGroup[]> = {};
 
   async onload() {
     await this.loadSettings();
@@ -224,7 +226,13 @@ export default class ContinueNotePlugin extends Plugin {
       "continue-note",
       (source, el, ctx) => {
         const config = parseBlockConfig(source);
-        ctx.addChild(new ContinueNoteChild(this.app, config, this.settings, () => this.openedLog, el, ctx));
+        ctx.addChild(new ContinueNoteChild(
+          this.app, config, this.settings,
+          () => this.openedLog,
+          (key) => this.renderCache[key],
+          async (key, groups) => { this.renderCache[key] = groups; await this.saveSettings(); },
+          el, ctx
+        ));
       }
     );
   }
@@ -233,9 +241,12 @@ export default class ContinueNotePlugin extends Plugin {
     const data = await this.loadData() ?? {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings ?? data);
     this.openedLog = Array.isArray(data.openedLog) ? data.openedLog : [];
+    this.renderCache = (typeof data.renderCache === "object" && data.renderCache !== null && !Array.isArray(data.renderCache))
+      ? data.renderCache as Record<string, CachedGroup[]>
+      : {};
   }
 
   async saveSettings() {
-    await this.saveData({ settings: this.settings, openedLog: this.openedLog });
+    await this.saveData({ settings: this.settings, openedLog: this.openedLog, renderCache: this.renderCache });
   }
 }

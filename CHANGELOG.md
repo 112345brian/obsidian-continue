@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.4 — 2026-06-15
+
+### Performance
+
+- **Render cache for fast mobile reopen**: after each render the card data (title, path, timestamp, location, frontmatter chips, markdown preview chunks) is persisted to `data.json`. On the next cold open the cached view renders immediately — with no file I/O, only `MarkdownRenderer.render` on the already-computed markdown — while a fresh render runs in the background and swaps in when done. Action buttons (categorize, trash) remain fully functional in the cached view because they resolve the live `TFile` at click time.
+
+### Settings
+
+- **Obsidian 1.13+ declarative settings API**: replaced the imperative `display()` implementation with `getSettingDefinitions()` + `setControlValue()` + `this.update()`. Conditional settings (Frontmatter date field, Max lines smart ceiling) now use `visible: () => bool` predicates that re-evaluate on each update without rebuilding the DOM. The excluded folders list uses `type: 'list'` with `onDelete` and a `render:` escape hatch for the add-folder input — the FolderSuggest cleanup function is returned from the render callback so the framework tears it down cleanly on each `update()`, eliminating the keymap-scope leak that required the manual `hide()` override.
+- **`minAppVersion`** bumped from `1.4.0` to `1.13.0`.
+
 ## 0.2.3 — 2026-06-14
 
 ### Fixes

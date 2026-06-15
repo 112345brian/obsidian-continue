@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, normalizePath } from "obsidian";
+import { App, normalizePath, PluginSettingTab, Setting } from "obsidian";
 import type ContinueNotePlugin from "./plugin";
 import { FolderSuggest } from "./FolderSuggest";
 
@@ -33,229 +33,150 @@ export const DEFAULT_SETTINGS: ContinueNoteSettings = {
 };
 
 export class ContinueNoteSettingsTab extends PluginSettingTab {
-  private folderSuggest: FolderSuggest | null = null;
-
   constructor(app: App, private plugin: ContinueNotePlugin) {
     super(app, plugin);
   }
 
-  hide() {
-    this.folderSuggest?.close();
-    this.folderSuggest = null;
+  getControlValue(key: string): unknown {
+    return (this.plugin.settings as unknown as Record<string, unknown>)[key];
   }
 
-  display() {
-    // Close the previous FolderSuggest before wiping the DOM so its keymap
-    // scope is removed and its input listeners are detached cleanly.
-    this.folderSuggest?.close();
-    this.folderSuggest = null;
-
-    const { containerEl } = this;
-    containerEl.empty();
-
-    new Setting(containerEl)
-      .setName("Sort by")
-      .setDesc("What signal determines which note is most recent.")
-      .addDropdown((d) =>
-        d
-          .addOption("modified", "Last modified (file system)")
-          .addOption("created", "Last created (file system)")
-          .addOption("frontmatter", "Frontmatter field")
-          .addOption("opened", "Last opened in Obsidian")
-          .addOption("orphan", "Orphan notes (via Trash Collection plugin)")
-          .setValue(this.plugin.settings.sortBy)
-          .onChange(async (val) => {
-            this.plugin.settings.sortBy = val as SortBy;
-            await this.plugin.saveSettings();
-            this.display();
-          })
-      );
-
-    if (this.plugin.settings.sortBy === "frontmatter") {
-      new Setting(containerEl)
-        .setName("Frontmatter date field")
-        .setDesc("The property name to sort by (must contain a parseable date).")
-        .addText((t) =>
-          t
-            .setPlaceholder("date-modified")
-            .setValue(this.plugin.settings.sortFrontmatterField)
-            .onChange(async (val) => {
-              this.plugin.settings.sortFrontmatterField = val.trim();
-              await this.plugin.saveSettings();
-            })
-        );
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    // Trim text fields; restore the default when the field is cleared entirely
+    if (typeof value === "string") {
+      value = value.trim() || (DEFAULT_SETTINGS as unknown as Record<string, unknown>)[key];
     }
-
-    new Setting(containerEl)
-      .setName("Max notes total")
-      .setDesc("Hard cap on how many notes the block can show, regardless of slot config.")
-      .addText((text) =>
-        text
-          .setValue(String(this.plugin.settings.maxTotal))
-          .onChange(async (val) => {
-            const n = parseInt(val, 10);
-            if (!isNaN(n) && n > 0) {
-              this.plugin.settings.maxTotal = n;
-              await this.plugin.saveSettings();
-            }
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Notes to show")
-      .setDesc("How many recent notes to show in the block by default. Can be overridden per-block with count: N.")
-      .addText((text) =>
-        text
-          .setValue(String(this.plugin.settings.count))
-          .onChange(async (val) => {
-            const n = parseInt(val, 10);
-            if (!isNaN(n) && n > 0) {
-              this.plugin.settings.count = n;
-              await this.plugin.saveSettings();
-            }
-          })
-      );
-
-    this.renderExcludeFolders(containerEl);
-
-    new Setting(containerEl)
-      .setName("Categorize field")
-      .setDesc("Frontmatter property edited by the categorize (chevron) button on each card.")
-      .addText((t) =>
-        t
-          .setPlaceholder("up")
-          .setValue(this.plugin.settings.categorizeField)
-          .onChange(async (val) => {
-            this.plugin.settings.categorizeField = val.trim() || "up";
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Frontmatter fields")
-      .setDesc("Comma-separated frontmatter properties to show under the title (e.g. status, tags). Leave empty to show none.")
-      .addText((text) =>
-        text
-          .setPlaceholder("status, tags")
-          .setValue(this.plugin.settings.frontmatterFields.join(", "))
-          .onChange(async (val) => {
-            this.plugin.settings.frontmatterFields = val.split(",").map((s) => s.trim()).filter(Boolean);
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Smart mode")
-      .setDesc("Shows the tail of the last ## section so you see where you left off. Falls back to max lines if there's no heading.")
-      .addToggle((t) =>
-        t.setValue(this.plugin.settings.smartMode).onChange(async (val) => {
-          this.plugin.settings.smartMode = val;
-          await this.plugin.saveSettings();
-          this.display();
-        })
-      );
-
-    if (this.plugin.settings.smartMode) {
-      new Setting(containerEl)
-        .setName("Max lines (smart ceiling)")
-        .setDesc("Upper bound for the adaptive cap. Shorter notes get closer to this; longer notes get fewer lines shown.")
-        .addText((text) =>
-          text
-            .setValue(String(this.plugin.settings.smartAbsoluteMax))
-            .onChange(async (val) => {
-              const n = parseInt(val, 10);
-              if (!isNaN(n) && n > 0) {
-                this.plugin.settings.smartAbsoluteMax = n;
-                await this.plugin.saveSettings();
-              }
-            })
-        );
-    }
-
-    new Setting(containerEl)
-      .setName("Short note threshold")
-      .setDesc("Notes with this many lines or fewer are always shown in full.")
-      .addText((text) =>
-        text
-          .setValue(String(this.plugin.settings.shortNoteThreshold))
-          .onChange(async (val) => {
-            const n = parseInt(val, 10);
-            if (!isNaN(n) && n > 0) {
-              this.plugin.settings.shortNoteThreshold = n;
-              await this.plugin.saveSettings();
-            }
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Max lines")
-      .setDesc(
-        this.plugin.settings.smartMode
-          ? "Fallback when no ## heading is found."
-          : "Maximum lines to preview."
-      )
-      .addText((text) =>
-        text
-          .setValue(String(this.plugin.settings.maxLines))
-          .onChange(async (val) => {
-            const n = parseInt(val, 10);
-            if (!isNaN(n) && n > 0) {
-              this.plugin.settings.maxLines = n;
-              await this.plugin.saveSettings();
-            }
-          })
-      );
-  }
-
-  private async addExclusion(rawPath: string, renderList: () => void): Promise<void> {
-    if (!rawPath) return;
-    // normalizePath handles backslashes, double slashes, etc. from manual keyboard entry
-    const base = normalizePath(rawPath.endsWith("/") ? rawPath.slice(0, -1) : rawPath);
-    const normalized = base + "/";
-    if (this.plugin.settings.exclude.includes(normalized)) return;
-    this.plugin.settings.exclude = [...this.plugin.settings.exclude, normalized];
+    (this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
     await this.plugin.saveSettings();
-    renderList();
+    // Re-evaluates visible predicates and refreshes desc strings that depend on settings state
+    this.update();
   }
 
-  private renderExcludeFolders(containerEl: HTMLElement): void {
-    new Setting(containerEl)
-      .setName("Excluded folders")
-      .setDesc("Path prefixes to ignore globally. Block-level exclude adds to this list.")
-      .setHeading();
+  getSettingDefinitions() {
+    const s = this.plugin.settings;
 
-    // Isolated container so add/remove only re-renders the folder rows,
-    // not the entire settings tab (which would wipe unsaved sibling fields).
-    const listEl = containerEl.createDiv();
-
-    const renderList = () => {
-      listEl.empty();
-      for (const path of this.plugin.settings.exclude) {
-        new Setting(listEl)
-          .setName(path)
-          .addButton((btn) =>
-            btn.setIcon("x").setTooltip("Remove").onClick(async () => {
-              this.plugin.settings.exclude = this.plugin.settings.exclude.filter((p) => p !== path);
+    return [
+      // ── Sorting ───────────────────────────────────────────────────────────
+      {
+        name: "Sort by",
+        desc: "What signal determines which note is most recent.",
+        control: {
+          type: "dropdown" as const,
+          key: "sortBy",
+          options: {
+            modified:    "Last modified (file system)",
+            created:     "Last created (file system)",
+            frontmatter: "Frontmatter field",
+            opened:      "Last opened in Obsidian",
+            orphan:      "Orphan notes (via Trash Collection plugin)",
+          } as Record<SortBy, string>,
+        },
+      },
+      {
+        name: "Frontmatter date field",
+        desc: "The property name to sort by (must contain a parseable date).",
+        visible: (): boolean => s.sortBy === "frontmatter",
+        control: {
+          type: "text" as const,
+          key: "sortFrontmatterField",
+          placeholder: "date-modified",
+        },
+      },
+      // ── Counts ────────────────────────────────────────────────────────────
+      {
+        name: "Max notes total",
+        desc: "Hard cap on how many notes the block can show, regardless of slot config.",
+        control: { type: "number" as const, key: "maxTotal", min: 1 },
+      },
+      {
+        name: "Notes to show",
+        desc: "How many recent notes to show by default. Can be overridden per-block with count: N.",
+        control: { type: "number" as const, key: "count", min: 1 },
+      },
+      // ── Excluded paths ────────────────────────────────────────────────────
+      {
+        name: "Excluded paths",
+        desc: "Files or folder prefixes to ignore globally. Type a file path (e.g. TOC/Recents.md) or folder prefix (e.g. Templates/). Block-level exclude adds to this list.",
+      },
+      {
+        type: "list" as const,
+        emptyState: "Nothing excluded.",
+        items: s.exclude.map(path => ({ name: path })),
+        onDelete: (index: number) => {
+          this.plugin.settings.exclude = this.plugin.settings.exclude.filter((_, i) => i !== index);
+          this.update();
+          void this.plugin.saveSettings();
+        },
+      },
+      {
+        name: "Add excluded path",
+        render: (setting: Setting): (() => void) | void => {
+          let suggest: FolderSuggest | null = null;
+          setting.addText(t => {
+            t.setPlaceholder("Folder/ or Note.md…");
+            suggest = new FolderSuggest(this.app, t.inputEl);
+            const addFolder = async (raw: string) => {
+              if (!raw) return;
+              const base = normalizePath(raw.endsWith("/") ? raw.slice(0, -1) : raw);
+              const normalized = base + "/";
+              if (this.plugin.settings.exclude.includes(normalized)) return;
+              this.plugin.settings.exclude = [...this.plugin.settings.exclude, normalized];
               await this.plugin.saveSettings();
-              renderList();
-            })
+              this.update();
+            };
+            suggest.onSelect(async folder => addFolder(folder.path));
+            t.inputEl.addEventListener("keydown", async (e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              await addFolder(t.getValue().trim());
+            });
+          });
+          // Called by the framework before tearing down the row on each update()
+          return () => suggest?.close();
+        },
+      },
+      // ── Display ───────────────────────────────────────────────────────────
+      {
+        name: "Categorize field",
+        desc: "Frontmatter property edited by the categorize (chevron) button on each card.",
+        control: { type: "text" as const, key: "categorizeField", placeholder: "up" },
+      },
+      {
+        name: "Frontmatter fields",
+        desc: "Comma-separated properties to show as chips under the title (e.g. status, tags). Leave empty to show none.",
+        render: (setting: Setting): void => {
+          setting.addText(t =>
+            t.setPlaceholder("status, tags")
+              .setValue(s.frontmatterFields.join(", "))
+              .onChange(async (val) => {
+                this.plugin.settings.frontmatterFields = val.split(",").map(v => v.trim()).filter(Boolean);
+                await this.plugin.saveSettings();
+              })
           );
-      }
-    };
-    renderList();
-
-    new Setting(containerEl).setName("Add folder").addText((t) => {
-      t.setPlaceholder("Folder path…");
-      this.folderSuggest = new FolderSuggest(this.app, t.inputEl);
-      this.folderSuggest.onSelect(async (folder) => {
-        await this.addExclusion(folder.path, renderList);
-      });
-      t.inputEl.addEventListener("keydown", async (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          await this.addExclusion(t.getValue().trim(), renderList);
-        }
-      });
-    });
+        },
+      },
+      // ── Smart truncation ──────────────────────────────────────────────────
+      {
+        name: "Smart mode",
+        desc: "Shows the tail of the last ## section so you see where you left off. Falls back to max lines if there's no heading.",
+        control: { type: "toggle" as const, key: "smartMode" },
+      },
+      {
+        name: "Max lines (smart ceiling)",
+        desc: "Upper bound for the adaptive cap. Shorter notes get closer to this; longer notes get fewer lines shown.",
+        visible: (): boolean => s.smartMode,
+        control: { type: "number" as const, key: "smartAbsoluteMax", min: 1 },
+      },
+      {
+        name: "Short note threshold",
+        desc: "Notes with this many lines or fewer are always shown in full.",
+        control: { type: "number" as const, key: "shortNoteThreshold", min: 1 },
+      },
+      {
+        name: "Max lines",
+        desc: s.smartMode ? "Fallback when no ## heading is found." : "Maximum lines to preview.",
+        control: { type: "number" as const, key: "maxLines", min: 1 },
+      },
+    ];
   }
 }

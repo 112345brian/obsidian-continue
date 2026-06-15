@@ -64,4 +64,4 @@ Block-level config can override global settings. `exclude: Templates/` inside th
 
 ## Requirements
 
-- Obsidian 1.4.0 or later
+- Obsidian 1.13.0 or later
