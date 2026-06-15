@@ -6,12 +6,11 @@ An Obsidian plugin that embeds a live preview of your most recently accessed not
 
 Place a `continue-note` code block anywhere in a note. It renders one or more cards, each showing the title, timestamp, location, and a smart excerpt of a recent note. Click the title to open it. Hover to reveal action buttons (categorize, trash).
 
-```
+
 ```continue-note
 opened: 1
 modified: 3
 orphan: 2
-```
 ```
 
 Each line is a **slot**: a source type and a count. You can mix and match any combination.
