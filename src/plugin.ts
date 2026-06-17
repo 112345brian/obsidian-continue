@@ -1,4 +1,5 @@
 import { Plugin } from "obsidian";
+import { API_VERSION, ContinueNoteApi } from "./api";
 import { parseBlockConfig } from "./parseBlockConfig";
 import { ContinueNoteChild } from "./ContinueNoteRenderer";
 import { ContinueNoteSettings, ContinueNoteSettingsTab, DEFAULT_SETTINGS } from "./settings";
@@ -196,11 +197,16 @@ const STYLES = `
 const OPENED_LOG_MAX = 500;
 
 export default class ContinueNotePlugin extends Plugin {
+  api: ContinueNoteApi;
   settings: ContinueNoteSettings;
   openedLog: string[] = []; // most-recently-opened paths, newest first
 
   async onload() {
     await this.loadSettings();
+    this.api = {
+      version: API_VERSION,
+      getRecentPaths: (limit?: number) => this.getRecentPaths(limit),
+    };
 
     const styleEl = document.createElement("style");
     styleEl.textContent = STYLES;
@@ -237,5 +243,10 @@ export default class ContinueNotePlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData({ settings: this.settings, openedLog: this.openedLog });
+  }
+
+  getRecentPaths(limit?: number): string[] {
+    const paths = [...this.openedLog];
+    return typeof limit === "number" ? paths.slice(0, limit) : paths;
   }
 }

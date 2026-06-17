@@ -61,6 +61,15 @@ Block-level config can override global settings. `exclude: Templates/` inside th
 - **[Breadcrumbs](https://github.com/SkepticMystic/breadcrumbs)**: if installed, the parent chain from the `up` hierarchy is shown under the title instead of the filesystem folder.
 - **[Trash Collection](https://github.com/112345brian/obsidian-trash-collection)**: required for the `orphan` slot type. All detection logic (age, conditions, exclusions) comes from Trash Collection's own settings — no duplicate config needed here.
 
+## Plugin API
+
+Other plugins can read the opened-note log without reaching into internals:
+
+```ts
+const plugin = app.plugins.plugins["obsidian-continue"] as { api?: ContinueNoteApi } | undefined;
+const paths = plugin?.api?.version === 1 ? plugin.api.getRecentPaths(10) : [];
+```
+
 ## Requirements
 
 - Obsidian 1.13.0 or later

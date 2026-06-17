@@ -1,6 +1,6 @@
 {
   "name": "obsidian-continue",
-  "version": "0.2.3",
+  "version": "0.2.6",
   "description": "Adds a continue-note block that previews your most recently modified note.",
   "main": "main.js",
   "scripts": {

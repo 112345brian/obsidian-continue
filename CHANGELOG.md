@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.6 — 2026-06-17
+
+- **Plugin API**: added `api.version` and `api.getRecentPaths(limit?)` so companion plugins can read the opened-note log without accessing `openedLog` directly.
+- **Version bookkeeping**: aligned `package.json` and `manifest.json` on `0.2.6`.
+
 ## 0.2.5 — 2026-06-15
 
 ### Settings
